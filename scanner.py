@@ -1,4 +1,6 @@
 ```python
+print("===== NSE SCANNER VERSION 2026-09-23-V2 =====")
+print("===== IST HTML LINK VERSION =====")
 import os
 import json
 import requests
