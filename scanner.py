@@ -1,7 +1,7 @@
 import os
 import json
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from tvscreener import StockScreener, StockField, Market
 import pandas as pd
 
@@ -9,6 +9,9 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 SENT_FILE = "sent_alerts.json"
 COOLDOWN_MINUTES = 60
+
+# IST timezone
+IST = timezone(timedelta(hours=5, minutes=30))
 
 def send_telegram(msg):
     if not BOT_TOKEN or not CHAT_ID:
@@ -43,7 +46,7 @@ def get_signal(val):
     if val <= -0.1: return "SELL"
     return "NEUTRAL"
 
-print(f"🔍 {datetime.now().strftime('%H:%M:%S')} — स्कैन शुरू...")
+print(f"🔍 {datetime.now(IST).strftime('%H:%M:%S')} IST — स्कैन शुरू...")
 
 ss = StockScreener()
 ss.set_markets(Market.INDIA)
@@ -98,7 +101,7 @@ if strong_symbols:
 print(f"✅ Intraday योग्य: {len(intraday_df)}")
 
 sent = load_sent()
-now = datetime.now()
+now = datetime.now(IST)
 new_alerts = []
 
 for _, row in intraday_df.iterrows():
@@ -107,6 +110,9 @@ for _, row in intraday_df.iterrows():
     if last_sent:
         try:
             last_time = datetime.fromisoformat(last_sent)
+            # पुराना time naive था, अब aware है - दोनों को match करने के लिए
+            if last_time.tzinfo is None:
+                last_time = last_time.replace(tzinfo=IST)
             if now - last_time < timedelta(minutes=COOLDOWN_MINUTES):
                 continue
         except:
@@ -120,7 +126,7 @@ if not new_alerts:
     print("✅ कोई नया अलर्ट नहीं")
     exit()
 
-msg = f"📊 <b>NSE स्कैन</b> ({now.strftime('%d-%b %H:%M')})\n\n"
+msg = f"📊 <b>NSE स्कैन</b> ({now.strftime('%d-%b %I:%M %p')} IST)\n\n"
 msg += f"🔥 Strong Buy/Sell: <b>{len(strong_df)}</b>\n"
 msg += f"🎯 Intraday योग्य: <b>{len(intraday_df)}</b>\n\n"
 msg += f"🆕 <b>नए अलर्ट ({len(new_alerts)}):</b>\n"
