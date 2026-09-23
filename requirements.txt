@@ -1,0 +1,3 @@
+tvscreener
+pandas
+requests
