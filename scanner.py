@@ -1,14 +1,15 @@
-```python
-print("===== NSE SCANNER VERSION 2026-09-23-V2 =====")
-print("===== IST HTML LINK VERSION =====")
+print("===== NSE SCANNER VERSION 2026-09-23-V3 =====")
+print("===== IST + TELEGRAM HTML + TRADINGVIEW LINK =====")
+
 import os
 import json
+import html
 import requests
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
-from tvscreener import StockScreener, StockField, Market
 import pandas as pd
+from tvscreener import StockScreener, StockField, Market
 
 
 # =========================================================
@@ -19,22 +20,19 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 SENT_FILE = "sent_alerts.json"
-
-# Same stock will not alert again within this time
 COOLDOWN_MINUTES = 60
 
-# IST timezone
+# India Standard Time
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
 # =========================================================
-# TELEGRAM SEND FUNCTION
+# TELEGRAM
 # =========================================================
 
 def send_telegram(msg):
-
     if not BOT_TOKEN or not CHAT_ID:
-        print("⚠️ Telegram configuration missing")
+        print("Telegram configuration missing")
         print(msg)
         return False
 
@@ -48,34 +46,27 @@ def send_telegram(msg):
     }
 
     try:
-
         response = requests.post(
             url,
             data=payload,
             timeout=15
         )
 
-        print(f"Telegram HTTP Status: {response.status_code}")
-        print(f"Telegram Response: {response.text}")
+        print("Telegram HTTP Status:", response.status_code)
+        print("Telegram Response:", response.text)
 
         if response.status_code == 200:
+            result = response.json()
 
-            try:
-                result = response.json()
+            if result.get("ok") is True:
+                print("Telegram message sent successfully")
+                return True
 
-                if result.get("ok") is True:
-                    print("✅ Telegram message sent successfully")
-                    return True
-
-            except Exception:
-                pass
-
-        print("❌ Telegram message failed")
+        print("Telegram message failed")
         return False
 
     except Exception as e:
-
-        print(f"❌ Telegram error: {e}")
+        print("Telegram error:", e)
         return False
 
 
@@ -84,23 +75,15 @@ def send_telegram(msg):
 # =========================================================
 
 def load_sent():
-
     if not os.path.exists(SENT_FILE):
         return {}
 
     try:
-
-        with open(
-            SENT_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
+        with open(SENT_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
 
     except Exception as e:
-
-        print(f"⚠️ Error reading {SENT_FILE}: {e}")
+        print("Error reading sent file:", e)
         return {}
 
 
@@ -109,15 +92,8 @@ def load_sent():
 # =========================================================
 
 def save_sent(data):
-
     try:
-
-        with open(
-            SENT_FILE,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
+        with open(SENT_FILE, "w", encoding="utf-8") as f:
             json.dump(
                 data,
                 f,
@@ -128,26 +104,21 @@ def save_sent(data):
         return True
 
     except Exception as e:
-
-        print(f"❌ Error saving sent alerts: {e}")
+        print("Error saving sent file:", e)
         return False
 
 
 # =========================================================
-# SIGNAL FUNCTION
+# SIGNAL
 # =========================================================
 
 def get_signal(val):
-
     if pd.isna(val):
         return "NEUTRAL"
 
     try:
-
         val = float(val)
-
     except Exception:
-
         return "NEUTRAL"
 
     if val >= 0.5:
@@ -166,17 +137,15 @@ def get_signal(val):
 
 
 # =========================================================
-# SYMBOL CLEANING
+# CLEAN SYMBOL
 # =========================================================
 
 def clean_symbol(symbol):
-
     if pd.isna(symbol):
         return ""
 
     symbol = str(symbol).strip().upper()
 
-    # Remove exchange prefix
     if ":" in symbol:
         symbol = symbol.split(":")[-1]
 
@@ -188,49 +157,41 @@ def clean_symbol(symbol):
 # =========================================================
 
 def tradingview_link(symbol):
-
     symbol = clean_symbol(symbol)
 
-    # URL encode NSE:
     encoded_symbol = quote(
         f"NSE:{symbol}",
         safe=""
     )
 
     return (
-        f"https://www.tradingview.com/chart/"
+        "https://www.tradingview.com/chart/"
         f"?symbol={encoded_symbol}"
     )
 
 
 # =========================================================
-# START SCANNER
+# START
 # =========================================================
 
 now = datetime.now(IST)
 
 print()
-print("=" * 70)
-print(
-    f"🔍 NSE SCANNER STARTED — "
-    f"{now.strftime('%d-%b-%Y %H:%M:%S')} IST"
-)
-print("=" * 70)
+print("=" * 65)
+print("NSE SCANNER V3")
+print("UTC TIME :", datetime.now(timezone.utc).strftime("%d-%b-%Y %H:%M:%S"))
+print("IST TIME :", now.strftime("%d-%b-%Y %H:%M:%S"))
+print("=" * 65)
 
 
 # =========================================================
 # FIRST SCAN
-# HULLMA20 > SMA50
-# RECOMMEND ALL 15
 # =========================================================
 
 try:
-
     ss = StockScreener()
 
-    ss.set_markets(
-        Market.INDIA
-    )
+    ss.set_markets(Market.INDIA)
 
     ss.select(
         StockField.NAME,
@@ -245,45 +206,27 @@ try:
         StockField.SIMPLE_MOVING_AVERAGE_50
     )
 
-    ss.set_range(
-        0,
-        500
-    )
+    ss.set_range(0, 500)
 
     df = ss.get()
 
 except Exception as e:
+    print("First scanner error:", e)
+    raise
 
-    print(f"❌ Screener error: {e}")
-    exit()
-
-
-# =========================================================
-# EMPTY CHECK
-# =========================================================
 
 if df.empty:
-
-    print("❌ कोई स्टॉक नहीं मिला")
-    exit()
-
-
-print(
-    f"📊 Initial stocks found: {len(df)}"
-)
+    print("No stocks found")
+    raise SystemExit
 
 
 # =========================================================
-# CLEAN SYMBOL
+# SYMBOL CLEANING
 # =========================================================
 
-df["Symbol"] = df["Symbol"].apply(
-    clean_symbol
-)
+df["Symbol"] = df["Symbol"].apply(clean_symbol)
 
-df = df[
-    df["Symbol"] != ""
-]
+df = df[df["Symbol"] != ""]
 
 df = df.drop_duplicates(
     subset=["Symbol"],
@@ -292,88 +235,52 @@ df = df.drop_duplicates(
 
 
 # =========================================================
-# FIND RECOMMENDATION COLUMN
+# FIND 15 MIN RECOMMENDATION COLUMN
 # =========================================================
 
 rating_col = next(
     (
-        c
-        for c in df.columns
-        if "Recommend" in c
-        and "15" in c
+        c for c in df.columns
+        if "Recommend" in c and "15" in c
     ),
     None
 )
 
-
-if not rating_col:
-
-    print(
-        "⚠️ Recommendation column नहीं मिला."
-    )
-
-    print(
-        "Available columns:"
-    )
-
-    print(
-        df.columns.tolist()
-    )
-
-    exit()
+if rating_col is None:
+    print("15 minute recommendation column not found.")
+    print(df.columns.tolist())
+    raise SystemExit
 
 
-print(
-    f"✅ Rating column: {rating_col}"
-)
+print("Rating column:", rating_col)
 
 
 # =========================================================
 # SIGNAL
 # =========================================================
 
-df["Signal"] = df[
-    rating_col
-].apply(get_signal)
-
-
-# =========================================================
-# STRONG BUY / STRONG SELL
-# =========================================================
+df["Signal"] = df[rating_col].apply(get_signal)
 
 strong_df = df[
     df[rating_col].abs() >= 0.5
 ].copy()
 
+strong_symbols = strong_df["Symbol"].tolist()
 
-print(
-    f"🔥 Strong Buy/Sell: "
-    f"{len(strong_df)}"
-)
-
-
-strong_symbols = (
-    strong_df["Symbol"]
-    .tolist()
-)
+print("Strong Buy/Sell:", len(strong_df))
 
 
 # =========================================================
-# SECOND / INTRADAY SCAN
+# INTRADAY SCAN
 # =========================================================
 
 intraday_df = pd.DataFrame()
 
-
 if strong_symbols:
-
     try:
-
         ss2 = StockScreener()
 
-        ss2.set_markets(
-            Market.INDIA
-        )
+        ss2.set_markets(Market.INDIA)
 
         ss2.select(
             StockField.NAME,
@@ -387,13 +294,11 @@ if strong_symbols:
             StockField.RECOMMEND_ALL_15
         )
 
-        # Hull MA 20 > SMA 50
         ss2.where(
             StockField.HULLMA20 >
             StockField.SIMPLE_MOVING_AVERAGE_50
         )
 
-        # RSI 40 - 70
         ss2.where(
             StockField.RELATIVE_STRENGTH_INDEX_14 > 40
         )
@@ -402,66 +307,53 @@ if strong_symbols:
             StockField.RELATIVE_STRENGTH_INDEX_14 < 70
         )
 
-        # Relative Volume > 1
         ss2.where(
             StockField.RELATIVE_VOLUME > 1
         )
 
-        ss2.set_range(
-            0,
-            500
-        )
+        ss2.set_range(0, 500)
 
         temp = ss2.get()
 
-
         if not temp.empty:
+            temp["Symbol"] = temp["Symbol"].apply(clean_symbol)
 
-            temp["Symbol"] = temp[
-                "Symbol"
-            ].apply(clean_symbol)
-
-            temp = temp[
-                temp["Symbol"] != ""
-            ]
+            temp = temp[temp["Symbol"] != ""]
 
             temp = temp.drop_duplicates(
                 subset=["Symbol"],
                 keep="first"
             )
 
-            # Only Strong Buy / Strong Sell stocks
             intraday_df = temp[
-                temp["Symbol"].isin(
-                    strong_symbols
-                )
+                temp["Symbol"].isin(strong_symbols)
             ].copy()
 
+            # Find recommendation column again
+            intraday_rating_col = next(
+                (
+                    c for c in intraday_df.columns
+                    if "Recommend" in c and "15" in c
+                ),
+                None
+            )
 
-            if rating_col in intraday_df.columns:
-
+            if intraday_rating_col:
                 intraday_df["Signal"] = (
-                    intraday_df[
-                        rating_col
-                    ].apply(get_signal)
+                    intraday_df[intraday_rating_col]
+                    .apply(get_signal)
                 )
 
-
     except Exception as e:
-
-        print(
-            f"❌ Intraday scan error: {e}"
-        )
+        print("Intraday scanner error:", e)
+        raise
 
 
-print(
-    f"🎯 Intraday योग्य: "
-    f"{len(intraday_df)}"
-)
+print("Intraday qualified:", len(intraday_df))
 
 
 # =========================================================
-# LOAD PREVIOUS ALERTS
+# COOLDOWN
 # =========================================================
 
 sent = load_sent()
@@ -471,61 +363,34 @@ now = datetime.now(IST)
 new_alerts = []
 
 
-# =========================================================
-# COOLDOWN CHECK
-# =========================================================
-
 for _, row in intraday_df.iterrows():
 
-    sym = clean_symbol(
-        row["Symbol"]
-    )
+    symbol = clean_symbol(row["Symbol"])
 
-    if not sym:
+    if not symbol:
         continue
 
-    last_sent = sent.get(sym)
+    last_sent = sent.get(symbol)
 
     if last_sent:
-
         try:
+            last_time = datetime.fromisoformat(last_sent)
 
-            last_time = datetime.fromisoformat(
-                last_sent
-            )
-
-            # Old file may contain naive datetime
             if last_time.tzinfo is None:
+                last_time = last_time.replace(tzinfo=IST)
 
-                last_time = last_time.replace(
-                    tzinfo=IST
-                )
-
-            time_difference = (
-                now - last_time
-            )
-
-            if (
-                time_difference
-                < timedelta(
-                    minutes=COOLDOWN_MINUTES
-                )
+            if now - last_time < timedelta(
+                minutes=COOLDOWN_MINUTES
             ):
-
-                print(
-                    f"⏳ {sym} skipped "
-                    f"(cooldown)"
-                )
-
+                print(symbol, "skipped - cooldown")
                 continue
 
         except Exception as e:
-
             print(
-                f"⚠️ Time parse error "
-                f"for {sym}: {e}"
+                "Cooldown parse error:",
+                symbol,
+                e
             )
-
 
     new_alerts.append(row)
 
@@ -536,27 +401,22 @@ for _, row in intraday_df.iterrows():
 
 if not new_alerts:
 
-    print()
+    print("No new alerts")
     print(
-        "✅ कोई नया अलर्ट नहीं"
+        "Current IST:",
+        now.strftime("%d-%b-%Y %H:%M:%S")
     )
 
-    print(
-        f"⏰ Current IST: "
-        f"{now.strftime('%d-%b-%Y %H:%M:%S')}"
-    )
-
-    exit()
+    raise SystemExit
 
 
 # =========================================================
-# BUILD TELEGRAM MESSAGE
+# TELEGRAM MESSAGE
 # =========================================================
 
 msg = (
-    f"📊 <b>NSE SCAN</b>\n"
-    f"⏰ {now.strftime('%d-%b-%Y %H:%M:%S')} IST\n"
-    f"\n"
+    f"📊 <b>NSE SCAN</b> "
+    f"({now.strftime('%d-%b %H:%M')} IST)\n\n"
 )
 
 msg += (
@@ -566,252 +426,129 @@ msg += (
 
 msg += (
     f"🎯 Intraday योग्य: "
-    f"<b>{len(intraday_df)}</b>\n"
+    f"<b>{len(intraday_df)}</b>\n\n"
 )
 
 msg += (
-    f"🆕 New Alerts: "
-    f"<b>{len(new_alerts)}</b>\n"
+    f"🆕 <b>नए अलर्ट "
+    f"({len(new_alerts)}):</b>\n"
 )
-
-msg += "\n"
 
 
 # =========================================================
-# ADD STOCK ALERTS
+# ADD STOCKS
 # =========================================================
 
 for row in new_alerts:
 
-    symbol = clean_symbol(
-        row["Symbol"]
+    symbol = clean_symbol(row["Symbol"])
+
+    signal = str(
+        row.get("Signal", "N/A")
     )
 
-    signal = row.get(
-        "Signal",
-        "N/A"
-    )
-
-
-    # ---------------------------------------------
     # RSI
-    # ---------------------------------------------
-
     rsi = row.get(
         "Relative Strength Index (14)",
         "N/A"
     )
 
-
-    if pd.isna(rsi):
-
+    if pd.notna(rsi):
+        try:
+            rsi = f"{float(rsi):.1f}"
+        except Exception:
+            rsi = str(rsi)
+    else:
         rsi = "N/A"
 
-    else:
-
-        try:
-
-            rsi = f"{float(rsi):.1f}"
-
-        except Exception:
-
-            rsi = str(rsi)
-
-
-    # ---------------------------------------------
-    # Price
-    # ---------------------------------------------
-
-    price = row.get(
-        "Price",
-        "N/A"
-    )
-
-
-    if pd.notna(price):
-
-        try:
-
-            price = f"{float(price):.2f}"
-
-        except Exception:
-
-            price = str(price)
-
-    else:
-
-        price = "N/A"
-
-
-    # ---------------------------------------------
-    # Change %
-    # ---------------------------------------------
-
-    change = row.get(
-        "Change %",
-        row.get(
-            "Change Percent",
-            "N/A"
-        )
-    )
-
-
-    if pd.notna(change):
-
-        try:
-
-            change = f"{float(change):+.2f}%"
-
-        except Exception:
-
-            change = str(change)
-
-    else:
-
-        change = "N/A"
-
-
-    # ---------------------------------------------
     # Relative Volume
-    # ---------------------------------------------
-
-    rel_volume = row.get(
+    rvol = row.get(
         "Relative Volume",
         "N/A"
     )
 
-
-    if pd.notna(rel_volume):
-
+    if pd.notna(rvol):
         try:
-
-            rel_volume = (
-                f"{float(rel_volume):.2f}"
-            )
-
+            rvol = f"{float(rvol):.2f}"
         except Exception:
-
-            rel_volume = str(rel_volume)
-
+            rvol = str(rvol)
     else:
+        rvol = "N/A"
 
-        rel_volume = "N/A"
+    # TradingView URL
+    tv_url = tradingview_link(symbol)
 
+    # Escape visible text for Telegram HTML
+    safe_symbol = html.escape(symbol)
+    safe_signal = html.escape(signal)
 
-    # ---------------------------------------------
-    # TradingView hyperlink
-    # ---------------------------------------------
-
-    tv_link = tradingview_link(
-        symbol
-    )
-
-
-    # ---------------------------------------------
-    # Telegram line
-    # ---------------------------------------------
-
+    # Clickable stock symbol
     msg += (
-        f'🔹 <a href="{tv_link}">'
-        f"<b>{symbol}</b>"
-        f"</a>"
-        f" — <b>{signal}</b>"
-        f" | RSI: {rsi}"
-        f" | RVOL: {rel_volume}"
-        f"\n"
+        f'• <a href="{tv_url}">'
+        f'<b>{safe_symbol}</b>'
+        f'</a>'
+        f' — {safe_signal}'
+        f' | RSI: {rsi}'
+        f' | RVOL: {rvol}\n'
     )
 
 
 # =========================================================
-# SEND TELEGRAM
+# DEBUG MESSAGE
 # =========================================================
 
 print()
-print("📤 Sending Telegram message...")
-
-telegram_success = send_telegram(
-    msg
-)
+print("Telegram message preview:")
+print(msg)
+print()
 
 
 # =========================================================
-# SAVE COOLDOWN ONLY AFTER SUCCESSFUL SEND
+# SEND
+# =========================================================
+
+telegram_success = send_telegram(msg)
+
+
+# =========================================================
+# SAVE COOLDOWN AFTER SUCCESS
 # =========================================================
 
 if telegram_success:
 
     for row in new_alerts:
 
-        sym = clean_symbol(
+        symbol = clean_symbol(
             row["Symbol"]
         )
 
-        sent[sym] = now.isoformat()
-
+        sent[symbol] = now.isoformat()
 
     save_sent(sent)
 
-    print()
     print(
-        f"✅ {len(new_alerts)} "
-        f"alerts sent successfully"
+        f"{len(new_alerts)} alerts sent successfully"
     )
 
 else:
 
-    print()
+    print("Telegram send failed")
     print(
-        "❌ Telegram send failed."
-    )
-
-    print(
-        "⚠️ sent_alerts.json "
-        "update नहीं किया गया."
+        "sent_alerts.json was not updated"
     )
 
 
 # =========================================================
-# FINAL STATUS
+# FINISH
 # =========================================================
 
 print()
-print("=" * 70)
-
+print("=" * 65)
 print(
-    f"⏰ Finished: "
-    f"{now.strftime('%d-%b-%Y %H:%M:%S')} IST"
+    "Finished IST:",
+    now.strftime("%d-%b-%Y %H:%M:%S")
 )
-
-print(
-    f"🔥 Strong: {len(strong_df)}"
-)
-
-print(
-    f"🎯 Intraday: {len(intraday_df)}"
-)
-
-print(
-    f"🆕 New alerts: {len(new_alerts)}"
-)
-
-print("=" * 70)
-```
-
-### Telegram में output अब इस प्रकार आएगा
-
-```text
-📊 NSE SCAN
-⏰ 23-Sep-2026 16:42:35 IST
-
-🔥 Strong Buy/Sell: 18
-🎯 Intraday योग्य: 7
-🆕 New Alerts: 3
-
-🔹 RELIANCE — STRONG BUY | RSI: 62.4 | RVOL: 1.85
-🔹 TATASTEEL — STRONG BUY | RSI: 58.7 | RVOL: 2.14
-🔹 INFY — STRONG SELL | RSI: 43.2 | RVOL: 1.42
-```
-
-**Symbol पर click करने पर TradingView NSE chart खुलेगा।**
-
-एक खास सुधार यह है कि अब `sent_alerts.json` **Telegram message सफल होने के बाद ही update होगा**। इसलिए Telegram में error आने पर आपका 60-minute cooldown गलत तरीके से consume नहीं होगा।
+print("Strong:", len(strong_df))
+print("Intraday:", len(intraday_df))
+print("New alerts:", len(new_alerts))
+print("=" * 65)
