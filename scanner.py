@@ -129,7 +129,9 @@ for row in new_alerts:
     rsi = row.get('Relative Strength Index (14)', 'N/A')
     if isinstance(rsi, float):
         rsi = f"{rsi:.1f}"
-    msg += f"• <b>{row['Symbol']}</b> — {row.get('Signal','N/A')} | RSI: {rsi}\n"
+    symbol = row['Symbol']
+    tv_link = f"https://www.tradingview.com/chart/?symbol=NSE:{symbol}"
+    msg += f'• <a href="{tv_link}"><b>{symbol}</b></a> — {row.get("Signal","N/A")} | RSI: {rsi}\n'
 
 send_telegram(msg)
 print(f"✅ {len(new_alerts)} अलर्ट भेजे गए")
