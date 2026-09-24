@@ -1,5 +1,5 @@
 name: NSE Scanner
-
+ 
 on:
   schedule:
     - cron: '*/5 * * * *'
@@ -30,7 +30,7 @@ jobs:
 
       - name: Save sent alerts state
         run: |
-          git config user.name "github-actions"
+          git config user.name "github-actions"  
           git config user.email "actions@github.com"
 
           git add sent_alerts.json
