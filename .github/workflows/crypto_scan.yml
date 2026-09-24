@@ -1,0 +1,2 @@
+- name: Run Crypto Scanner
+  run: python crypto_scanner.py
