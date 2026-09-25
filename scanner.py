@@ -40,7 +40,7 @@ CHAT_ID = os.environ.get(
 SENT_FILE = "sent_alerts.json"
 
 # Same stock can alert again after 5 minutes
-COOLDOWN_MINUTES = 15
+COOLDOWN_MINUTES = 5
 
 # RSI range
 RSI_MIN = 40
@@ -594,11 +594,27 @@ def process_daily(df):
     )
 
 
+    # -------------------------------------------------------
+    # FIX (2026-09-25):
+    # TradingView's daily screener returns this column as
+    # "Simple Moving Average (50)" - it does NOT contain the
+    # substring "sma". The old keyword list ["sma", "50"]
+    # never matched, so sma_col was always None here, which
+    # made this function return two EMPTY DataFrames. That in
+    # turn caused a downstream KeyError('Symbol') in main()
+    # when it tried to read daily_buy_df["Symbol"] on an empty,
+    # columnless DataFrame - a confusing error far from the
+    # real cause.
+    #
+    # "moving average" is a substring of the real header, so
+    # this keyword list matches correctly.
+    # -------------------------------------------------------
+
     sma_col = find_column(
 
         df,
 
-        ["sma", "50"]
+        ["moving average", "50"]
 
     )
 
@@ -621,9 +637,14 @@ def process_daily(df):
             "ERROR: Daily HULLMA20 column not found"
         )
 
-        return (
-            pd.DataFrame(),
-            pd.DataFrame()
+        print(
+            "Available columns:",
+            df.columns.tolist()
+        )
+
+        raise RuntimeError(
+            "Daily HULLMA20 column not found - "
+            "check TradingView field naming"
         )
 
 
@@ -633,9 +654,14 @@ def process_daily(df):
             "ERROR: Daily SMA50 column not found"
         )
 
-        return (
-            pd.DataFrame(),
-            pd.DataFrame()
+        print(
+            "Available columns:",
+            df.columns.tolist()
+        )
+
+        raise RuntimeError(
+            "Daily SMA50 column not found - "
+            "check TradingView field naming"
         )
 
 
@@ -884,11 +910,16 @@ def process_15min(
     )
 
 
+    # -------------------------------------------------------
+    # FIX (2026-09-25): same "moving average" vs "sma" issue
+    # as in process_daily() above - see the comment there.
+    # -------------------------------------------------------
+
     sma_col = find_column(
 
         df,
 
-        ["sma", "50"]
+        ["moving average", "50"]
 
     )
 
@@ -970,12 +1001,22 @@ def process_15min(
 
     if hull_col is None:
 
+        print(
+            "Available columns:",
+            df.columns.tolist()
+        )
+
         raise RuntimeError(
             "15m HULLMA20 column not found"
         )
 
 
     if sma_col is None:
+
+        print(
+            "Available columns:",
+            df.columns.tolist()
+        )
 
         raise RuntimeError(
             "15m SMA50 column not found"
@@ -984,6 +1025,11 @@ def process_15min(
 
     if rsi_col is None:
 
+        print(
+            "Available columns:",
+            df.columns.tolist()
+        )
+
         raise RuntimeError(
             "15m RSI column not found"
         )
@@ -991,12 +1037,22 @@ def process_15min(
 
     if rvol_col is None:
 
+        print(
+            "Available columns:",
+            df.columns.tolist()
+        )
+
         raise RuntimeError(
             "Relative Volume column not found"
         )
 
 
     if rating_col is None:
+
+        print(
+            "Available columns:",
+            df.columns.tolist()
+        )
 
         raise RuntimeError(
             "Recommend All|15 column not found"
