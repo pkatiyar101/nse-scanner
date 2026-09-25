@@ -233,7 +233,7 @@ def get_daily_data():
     df = ss.get()
 
     if df.empty:
-        return df
+        return df, set(), set()
 
     print_columns("DAILY", df)
 
