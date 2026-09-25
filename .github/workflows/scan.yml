@@ -1,40 +1,62 @@
 name: NSE Scanner
- 
+
 on:
+  # Every 5 minutes, starting at minute 2.
+  # This avoids the exact top-of-hour load peak.
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: "2-59/5 * * * *"
   workflow_dispatch:
+
+# Prevent two scanner jobs from modifying sent_alerts.json at the same time.
+concurrency:
+  group: nse-scanner
+  cancel-in-progress: false
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     permissions:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          python-version: '3.11'
+          fetch-depth: 0
 
-      - name: Install deps
-        run: pip install -r requirements.txt
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
-      - name: Run scanner
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "tvscreener==0.5.2" pandas requests
+
+      - name: Run NSE scanner
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scanner.py
+        run: |
+          python scanner.py
 
       - name: Save sent alerts state
+        if: always()
         run: |
-          git config user.name "github-actions"  
+          git config user.name "github-actions"
           git config user.email "actions@github.com"
 
-          git add sent_alerts.json
+          if [ -f sent_alerts.json ]; then
+            git add sent_alerts.json
+          fi
 
-          git diff --cached --quiet || git commit -m "update alerts [skip ci]"
-
-          git push
+          if git diff --cached --quiet; then
+            echo "No sent_alerts.json changes to commit."
+          else
+            git commit -m "update alerts [skip ci]"
+            git push
+          fi
