@@ -397,15 +397,85 @@ for _, row in intraday_df.iterrows():
 
 # =========================================================
 # NO NEW ALERT
+# SEND TELEGRAM STATUS MESSAGE
 # =========================================================
 
 if not new_alerts:
 
     print("No new alerts")
+
     print(
         "Current IST:",
         now.strftime("%d-%b-%Y %H:%M:%S")
     )
+
+
+    # -----------------------------------------------------
+    # NO NEW STOCK MESSAGE
+    # -----------------------------------------------------
+
+    no_alert_msg = (
+
+        f"📊 <b>NSE SCAN</b> "
+        f"({now.strftime('%d-%b %H:%M')} IST)\n\n"
+
+        f"⚪ <b>NO NEW STOCKS FOUND</b>\n\n"
+
+        f"📌 Strong Buy/Sell: "
+        f"<b>{len(strong_df)}</b>\n"
+
+        f"🎯 Intraday Qualified: "
+        f"<b>{len(intraday_df)}</b>\n"
+
+        f"🆕 New Alerts: "
+        f"<b>0</b>\n\n"
+
+        f"⏱ Cooldown: "
+        f"<b>{COOLDOWN_MINUTES} min</b>"
+    )
+
+
+    # -----------------------------------------------------
+    # DEBUG
+    # -----------------------------------------------------
+
+    print()
+    print(
+        "Telegram NO NEW STOCK message:"
+    )
+
+    print(
+        no_alert_msg
+    )
+
+    print()
+
+
+    # -----------------------------------------------------
+    # SEND TELEGRAM
+    # -----------------------------------------------------
+
+    telegram_success = send_telegram(
+        no_alert_msg
+    )
+
+
+    if telegram_success:
+
+        print(
+            "Telegram NO NEW STOCK message sent successfully."
+        )
+
+    else:
+
+        print(
+            "Telegram NO NEW STOCK message failed."
+        )
+
+
+    # -----------------------------------------------------
+    # EXIT ONLY AFTER TELEGRAM
+    # -----------------------------------------------------
 
     raise SystemExit
 
