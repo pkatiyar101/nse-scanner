@@ -1,4 +1,4 @@
-print("===== NSE SCANNER VERSION 2026-09-25-V6 =====")
+print("===== NSE SCANNER VERSION 2026-09-25-V6.2 =====")
 print("===== DAILY + 15M HULL/SMA + RSI + RVOL + TELEGRAM =====")
 
 import os
@@ -133,14 +133,27 @@ def numeric(series):
 
 
 def find_column(df, exact_names=(), contains_all=()):
+    # 1) Exact match first.
     for name in exact_names:
         if name in df.columns:
             return name
 
-    wanted = [x.lower() for x in contains_all]
+    # 2) Normalized text match. This handles TradingView names such as:
+    #    "Simple Moving Average (50) (15)" and spacing/punctuation changes.
+    def norm(value):
+        return "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+    normalized = {norm(col): col for col in df.columns}
+
+    for name in exact_names:
+        n = norm(name)
+        if n in normalized:
+            return normalized[n]
+
+    wanted = [norm(x) for x in contains_all if norm(x)]
 
     for col in df.columns:
-        text = str(col).lower()
+        text = norm(col)
         if all(x in text for x in wanted):
             return col
 
@@ -340,19 +353,19 @@ def get_15min_data():
 
     sma_col = find_column(
         df,
-        exact_names=("SMA50|15",),
-        contains_all=("sma", "50", "15"),
+        exact_names=("Simple Moving Average (50) (15)", "SMA50|15"),
+        contains_all=("simple", "moving", "average", "50", "15"),
     )
 
     rsi_col = find_column(
         df,
-        exact_names=("RSI14|15",),
-        contains_all=("rsi", "14", "15"),
+        exact_names=("Relative Strength Index (14) (15)", "RSI14|15"),
+        contains_all=("relative", "strength", "index", "14", "15"),
     )
 
     rvol_col = find_column(
         df,
-        exact_names=("Relative Volume|15",),
+        exact_names=("Relative Volume (15)", "Relative Volume|15"),
         contains_all=("relative", "volume", "15"),
     )
 
