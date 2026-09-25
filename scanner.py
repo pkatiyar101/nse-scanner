@@ -1,4 +1,4 @@
-print("===== NSE SCANNER VERSION 2026-09-23-V3 =====")
+print("===== NSE SCANNER VERSION 2026-09-25-V5 =====")
 print("===== IST + TELEGRAM HTML + TRADINGVIEW LINK =====")
 
 import os
