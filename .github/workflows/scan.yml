@@ -1,10 +1,14 @@
 name: NSE Scanner
 
 on:
-  # Every 5 minutes, starting at minute 2.
-  # This avoids the exact top-of-hour load peak.
+  # Runs every 15 minutes from 9:15 AM to 3:30 PM IST, Monday to Friday
+  # GitHub cron is in UTC.
+  # IST = UTC + 5:30
+  # 9:15 AM IST = 3:45 AM UTC
+  # 3:30 PM IST = 10:00 AM UTC
   schedule:
-    - cron: "2-59/5 * * * *"
+    - cron: "*/15 3-9 * * 1-5"
+    - cron: "0 10 * * 1-5"
   workflow_dispatch:
 
 # Prevent two scanner jobs from modifying sent_alerts.json at the same time.
@@ -15,7 +19,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     permissions:
       contents: write
@@ -24,7 +28,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          persist-credentials: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -46,6 +51,9 @@ jobs:
 
       - name: Save sent alerts state
         if: always()
+        shell: bash
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
@@ -56,7 +64,8 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "No sent_alerts.json changes to commit."
-          else
-            git commit -m "update alerts [skip ci]"
-            git push
+            exit 0
           fi
+
+          git commit -m "update alerts [skip ci]"
+          git push origin HEAD:"$BRANCH_NAME"
