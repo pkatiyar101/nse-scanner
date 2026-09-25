@@ -20,7 +20,7 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 SENT_FILE = "sent_alerts.json"
-COOLDOWN_MINUTES = 30
+COOLDOWN_MINUTES = 60
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
