@@ -22,7 +22,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 SENT_FILE = "sent_alerts.json"
 
 # Scanner cooldown is independent of GitHub Actions schedule.
-COOLDOWN_MINUTES = 5
+COOLDOWN_MINUTES = 15
 
 # 15-minute entry conditions
 RSI_MIN = 40
