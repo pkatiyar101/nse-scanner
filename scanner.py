@@ -153,6 +153,57 @@ def send_telegram(msg):
     return all_ok
 
 
+def send_telegram_document(file_path, caption=None):
+    if not BOT_TOKEN or not CHAT_ID:
+        print("Telegram configuration missing")
+        return False
+
+    if not os.path.exists(file_path):
+        print(f"Telegram file not found: {file_path}")
+        return False
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+    doc_caption = caption or f"📄 {os.path.basename(file_path)}"
+
+    try:
+        with open(file_path, "rb") as file_obj:
+            payload = {
+                "chat_id": CHAT_ID,
+                "caption": doc_caption,
+                "parse_mode": "HTML",
+            }
+            files = {
+                "document": (
+                    os.path.basename(file_path),
+                    file_obj,
+                    "text/csv",
+                )
+            }
+
+            response = requests.post(
+                url,
+                data=payload,
+                files=files,
+                timeout=30,
+            )
+
+        print("Telegram document HTTP Status:", response.status_code)
+        print("Telegram document Response:", response.text)
+
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("ok") is True:
+                print("Telegram document sent successfully")
+                return True
+
+        print("Telegram document failed")
+        return False
+
+    except Exception as e:
+        print("Telegram document error:", e)
+        return False
+
+
 # =========================================================
 # SENT ALERT STATE
 # =========================================================
@@ -1111,6 +1162,16 @@ def main():
     print(msg)
 
     telegram_success = send_telegram(msg)
+
+    if telegram_success and os.path.exists(NEWS_FILE):
+        csv_caption = (
+            f"📄 Stocks News Analysis "
+            f"({now.strftime('%d-%b %H:%M')} IST)"
+        )
+        if send_telegram_document(NEWS_FILE, csv_caption):
+            print("News CSV sent to Telegram.")
+        else:
+            print("News CSV could not be sent to Telegram.")
 
     # -----------------------------------------------------
     # SAVE COOLDOWN ONLY AFTER TELEGRAM SUCCESS
