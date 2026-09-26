@@ -109,7 +109,6 @@ def send_telegram(msg):
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-    # Keep each Telegram message safely below the API limit.
     chunks = []
     remaining = msg
 
@@ -135,7 +134,6 @@ def send_telegram(msg):
 
         try:
             response = requests.post(url, data=payload, timeout=20)
-
             print("Telegram HTTP Status:", response.status_code)
             print("Telegram Response:", response.text)
 
@@ -778,7 +776,6 @@ def analyze_qualified_news(df):
     result["News Score"] = final_scores
     result["News Signal"] = final_signals
 
-    # Save final qualified stocks with all requested news columns.
     save_columns = [
         "Symbol",
         "Name",
@@ -808,7 +805,6 @@ def analyze_qualified_news(df):
     except Exception as e:
         print("News CSV save error:", e)
 
-    # Save separate BUY and SELL CSV files
     try:
         buy_df = result[result["Signal"] == "STRONG BUY"]
         if not buy_df.empty:
@@ -1212,7 +1208,6 @@ def main():
         buy_send_ok = send_telegram(buy_msg)
         telegram_success = telegram_success and buy_send_ok
 
-        # Send BUY CSV
         if buy_send_ok and os.path.exists(NEWS_BUY_FILE):
             csv_caption = (
                 f"📈 <b>STRONG BUY Stocks Analysis</b>\n"
@@ -1244,7 +1239,6 @@ def main():
         sell_send_ok = send_telegram(sell_msg)
         telegram_success = telegram_success and sell_send_ok
 
-        # Send SELL CSV
         if sell_send_ok and os.path.exists(NEWS_SELL_FILE):
             csv_caption = (
                 f"📉 <b>STRONG SELL Stocks Analysis</b>\n"
