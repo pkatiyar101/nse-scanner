@@ -1,6 +1,4 @@
-from pathlib import Path
-
-workflow = r'''name: NSE Scanner
+name: NSE Scanner
 
 on:
   # Runs every 15 minutes from 9:15 AM to 3:30 PM IST, Monday to Friday
@@ -76,19 +74,3 @@ jobs:
 
           git commit -m "update alerts and news analysis [skip ci]"
           git push origin HEAD:"$BRANCH_NAME"
-'''
-
-Path("/mnt/data/scan.yml").write_text(workflow, encoding="utf-8")
-
-# Basic YAML-structure sanity checks without requiring PyYAML.
-assert 'name: NSE Scanner' in workflow
-assert 'schedule:' in workflow
-assert 'workflow_dispatch:' in workflow
-assert 'Stocks_News_Analysis.csv' in workflow
-assert 'sent_alerts.json' in workflow
-assert 'python scanner.py' in workflow
-assert 'git push origin HEAD:"$BRANCH_NAME"' in workflow
-
-print("Updated scan.yml created successfully.")
-print("Schedule unchanged: 09:15 to 15:30 IST, every 15 minutes.")
-print("Added persistence for Stocks_News_Analysis.csv.")
