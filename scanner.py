@@ -961,6 +961,49 @@ def build_alert_message(
     return msg
 
 
+def build_bilingual_summary(now, new_buy_rows, new_sell_rows):
+    """
+    Build a compact Hindi/English summary message.
+    """
+    buy_count = len(new_buy_rows)
+    sell_count = len(new_sell_rows)
+    total = buy_count + sell_count
+
+    buy_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_buy_rows])
+    sell_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_sell_rows])
+
+    msg = (
+        f"🎯 <b>NSE Alert Summary</b> | <b>NSE अलर्ट सारांश</b>\n"
+        f"⏰ {now.strftime('%d-%b %H:%M')} IST\n\n"
+    )
+
+    # English
+    msg += f"<b>📊 English (अंग्रेजी)</b>\n"
+    msg += f"Total Alerts: <b>{total}</b> | "
+    msg += f"🟢 BUY: <b>{buy_count}</b> | "
+    msg += f"🔴 SELL: <b>{sell_count}</b>\n\n"
+
+    if buy_symbols:
+        msg += f"<b>Buy Stocks:</b>\n{buy_symbols}\n\n"
+    if sell_symbols:
+        msg += f"<b>Sell Stocks:</b>\n{sell_symbols}\n\n"
+
+    # Hindi
+    msg += f"<b>📊 हिंदी (Hindi)</b>\n"
+    msg += f"कुल अलर्ट: <b>{total}</b> | "
+    msg += f"🟢 खरीद: <b>{buy_count}</b> | "
+    msg += f"🔴 बिक्री: <b>{sell_count}</b>\n\n"
+
+    if buy_symbols:
+        msg += f"<b>खरीद के स्टॉक:</b>\n{buy_symbols}\n\n"
+    if sell_symbols:
+        msg += f"<b>बिक्री के स्टॉक:</b>\n{sell_symbols}\n\n"
+
+    msg += "📄 <b>Full details in attached CSV</b> | <b>CSV में पूरी जानकारी</b>"
+
+    return msg
+
+
 # =========================================================
 # MAIN
 # =========================================================
@@ -1163,15 +1206,25 @@ def main():
 
     telegram_success = send_telegram(msg)
 
-    if telegram_success and os.path.exists(NEWS_FILE):
-        csv_caption = (
-            f"📄 Stocks News Analysis "
-            f"({now.strftime('%d-%b %H:%M')} IST)"
-        )
-        if send_telegram_document(NEWS_FILE, csv_caption):
-            print("News CSV sent to Telegram.")
-        else:
-            print("News CSV could not be sent to Telegram.")
+    # Send bilingual summary + CSV after alert succeeds
+    if telegram_success:
+        # Send summary message
+        summary_msg = build_bilingual_summary(now, new_buy_rows, new_sell_rows)
+        print()
+        print("Telegram bilingual summary preview:")
+        print(summary_msg)
+        send_telegram(summary_msg)
+
+        # Send CSV document
+        if os.path.exists(NEWS_FILE):
+            csv_caption = (
+                f"📄 <b>Stocks News Analysis</b>\n"
+                f"({now.strftime('%d-%b %H:%M')} IST)"
+            )
+            if send_telegram_document(NEWS_FILE, csv_caption):
+                print("News CSV sent to Telegram.")
+            else:
+                print("News CSV could not be sent to Telegram.")
 
     # -----------------------------------------------------
     # SAVE COOLDOWN ONLY AFTER TELEGRAM SUCCESS
