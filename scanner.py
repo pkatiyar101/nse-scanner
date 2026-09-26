@@ -24,6 +24,8 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 SENT_FILE = "sent_alerts.json"
 NEWS_FILE = "Stocks_News_Analysis.csv"
+NEWS_BUY_FILE = "Stocks_BUY_Analysis.csv"
+NEWS_SELL_FILE = "Stocks_SELL_Analysis.csv"
 
 COOLDOWN_MINUTES = 15
 
@@ -806,6 +808,28 @@ def analyze_qualified_news(df):
     except Exception as e:
         print("News CSV save error:", e)
 
+    # Save separate BUY and SELL CSV files
+    try:
+        buy_df = result[result["Signal"] == "STRONG BUY"]
+        if not buy_df.empty:
+            buy_df[save_columns].to_csv(
+                NEWS_BUY_FILE,
+                index=False,
+                encoding="utf-8-sig",
+            )
+            print(f"BUY analysis saved: {NEWS_BUY_FILE}")
+
+        sell_df = result[result["Signal"] == "STRONG SELL"]
+        if not sell_df.empty:
+            sell_df[save_columns].to_csv(
+                NEWS_SELL_FILE,
+                index=False,
+                encoding="utf-8-sig",
+            )
+            print(f"SELL analysis saved: {NEWS_SELL_FILE}")
+    except Exception as e:
+        print("BUY/SELL CSV save error:", e)
+
     print("=" * 70)
     print("NEWS ANALYSIS FINISHED")
     print("=" * 70)
@@ -926,14 +950,13 @@ def build_status_message(
     )
 
 
-def build_alert_message(
+def build_buy_message(
     now,
     daily_buy_count,
     daily_sell_count,
     qualified_buy_count,
     qualified_sell_count,
     new_buy_rows,
-    new_sell_rows,
 ):
     msg = (
         f"📊 <b>NSE SCAN</b> "
@@ -950,59 +973,37 @@ def build_alert_message(
             msg += format_stock_line(row)
         msg += "\n"
 
-    if new_sell_rows:
-        msg += f"🔴 <b>STRONG SELL ({len(new_sell_rows)})</b>\n"
-        for row in new_sell_rows:
-            msg += format_stock_line(row)
-        msg += "\n"
-        
-    msg += "📄 <b>Full details in attached CSV</b> | <b>CSV में पूरी जानकारी</b>"
     msg += f"⏱ Cooldown: <b>{COOLDOWN_MINUTES} min</b>"
 
     return msg
 
 
-# def build_bilingual_summary(now, new_buy_rows, new_sell_rows):
-    """
-  ##  Build a compact Hindi/English summary message.
-   # """
-  #  buy_count = len(new_buy_rows)
-   # sell_count = len(new_sell_rows)
-  #  total = buy_count + sell_count
+def build_sell_message(
+    now,
+    daily_buy_count,
+    daily_sell_count,
+    qualified_buy_count,
+    qualified_sell_count,
+    new_sell_rows,
+):
+    msg = (
+        f"📊 <b>NSE SCAN</b> "
+        f"({now.strftime('%d-%b %H:%M')} IST)\n\n"
+        f"📈 Daily BUY: <b>{daily_buy_count}</b>\n"
+        f"📉 Daily SELL: <b>{daily_sell_count}</b>\n"
+        f"🟢 15M Strong BUY: <b>{qualified_buy_count}</b>\n"
+        f"🔴 15M Strong SELL: <b>{qualified_sell_count}</b>\n\n"
+    )
 
-   # buy_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_buy_rows])
-    #sell_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_sell_rows])
+    if new_sell_rows:
+        msg += f"🔴 <b>STRONG SELL ({len(new_sell_rows)})</b>\n"
+        for row in new_sell_rows:
+            msg += format_stock_line(row)
+        msg += "\n"
 
-   # msg = (
-   #     f"🎯 <b>NSE Alert Summary</b> | <b>NSE अलर्ट सारांश</b>\n"
-    #    f"⏰ {now.strftime('%d-%b %H:%M')} IST\n\n"
-   # )
+    msg += f"⏱ Cooldown: <b>{COOLDOWN_MINUTES} min</b>"
 
-   # # English
-   # msg += f"<b>📊 English (अंग्रेजी)</b>\n"
-  #  msg += f"Total Alerts: <b>{total}</b> | "
-   # msg += f"🟢 BUY: <b>{buy_count}</b> | "
-   # msg += f"🔴 SELL: <b>{sell_count}</b>\n\n"
-
-  #  if buy_symbols:
-    #    msg += f"<b>Buy Stocks:</b>\n{buy_symbols}\n\n"
-    #if sell_symbols:
-      #  msg += f"<b>Sell Stocks:</b>\n{sell_symbols}\n\n"
-
-    # Hindi
-   # msg += f"<b>📊 हिंदी (Hindi)</b>\n"
-    #msg += f"कुल अलर्ट: <b>{total}</b> | "
-   # msg += f"🟢 खरीद: <b>{buy_count}</b> | "
-    #msg += f"🔴 बिक्री: <b>{sell_count}</b>\n\n"
-
-    #if buy_symbols:
-     #   msg += f"<b>खरीद के स्टॉक:</b>\n{buy_symbols}\n\n"
-    #if sell_symbols:
-     #   msg += f"<b>बिक्री के स्टॉक:</b>\n{sell_symbols}\n\n"
-
-   # msg += "📄 <b>Full details in attached CSV</b> | <b>CSV में पूरी जानकारी</b>"
-
-   # return msg
+    return msg
 
 
 # =========================================================
@@ -1187,49 +1188,77 @@ def main():
         send_telegram(status_msg)
         return
 
-    # -----------------------------------------------------
-    # ALERT MESSAGE
-    # -----------------------------------------------------
+    # ====================================================
+    # SEND SEPARATE BUY AND SELL BLOCKS + CSV FILES
+    # ====================================================
 
-    msg = build_alert_message(
-        now,
-        len(daily_buy_symbols),
-        len(daily_sell_symbols),
-        len(qualified_buy),
-        len(qualified_sell),
-        new_buy_rows,
-        new_sell_rows,
-    )
+    telegram_success = True
 
-    print()
-    print("Telegram alert preview:")
-    print(msg)
+    # Send BUY message and CSV separately
+    if new_buy_rows:
+        buy_msg = build_buy_message(
+            now,
+            len(daily_buy_symbols),
+            len(daily_sell_symbols),
+            len(qualified_buy),
+            len(qualified_sell),
+            new_buy_rows,
+        )
 
-    telegram_success = send_telegram(msg)
-
-    # Send bilingual summary + CSV after alert succeeds
-    if telegram_success:
-        # Send summary message
-        summary_msg = build_bilingual_summary(now, new_buy_rows, new_sell_rows)
         print()
-        print("Telegram bilingual summary preview:")
-        print(summary_msg)
-        send_telegram(summary_msg)
+        print("Telegram BUY message:")
+        print(buy_msg)
 
-        # Send CSV document
-        if os.path.exists(NEWS_FILE):
+        buy_send_ok = send_telegram(buy_msg)
+        telegram_success = telegram_success and buy_send_ok
+
+        # Send BUY CSV
+        if buy_send_ok and os.path.exists(NEWS_BUY_FILE):
             csv_caption = (
-                f"📄 <b>Stocks News Analysis</b>\n"
+                f"📈 <b>STRONG BUY Stocks Analysis</b>\n"
                 f"({now.strftime('%d-%b %H:%M')} IST)"
             )
-            if send_telegram_document(NEWS_FILE, csv_caption):
-                print("News CSV sent to Telegram.")
+            if send_telegram_document(NEWS_BUY_FILE, csv_caption):
+                print("BUY CSV sent to Telegram.")
             else:
-                print("News CSV could not be sent to Telegram.")
+                print("BUY CSV could not be sent to Telegram.")
+                telegram_success = False
 
-    # -----------------------------------------------------
+    print()
+
+    # Send SELL message and CSV separately
+    if new_sell_rows:
+        sell_msg = build_sell_message(
+            now,
+            len(daily_buy_symbols),
+            len(daily_sell_symbols),
+            len(qualified_buy),
+            len(qualified_sell),
+            new_sell_rows,
+        )
+
+        print()
+        print("Telegram SELL message:")
+        print(sell_msg)
+
+        sell_send_ok = send_telegram(sell_msg)
+        telegram_success = telegram_success and sell_send_ok
+
+        # Send SELL CSV
+        if sell_send_ok and os.path.exists(NEWS_SELL_FILE):
+            csv_caption = (
+                f"📉 <b>STRONG SELL Stocks Analysis</b>\n"
+                f"({now.strftime('%d-%b %H:%M')} IST)"
+            )
+            if send_telegram_document(NEWS_SELL_FILE, csv_caption):
+                print("SELL CSV sent to Telegram.")
+            else:
+                print("SELL CSV could not be sent to Telegram.")
+                telegram_success = False
+
+    # ====================================================
     # SAVE COOLDOWN ONLY AFTER TELEGRAM SUCCESS
-    # -----------------------------------------------------
+    # ====================================================
 
     if telegram_success:
         for row in new_rows:
@@ -1252,7 +1281,9 @@ def main():
     print("Final SELL:", len(qualified_sell))
     print("New BUY:", len(new_buy_rows))
     print("New SELL:", len(new_sell_rows))
-    print("News CSV:", NEWS_FILE)
+    print("Combined CSV:", NEWS_FILE)
+    print("BUY CSV:", NEWS_BUY_FILE)
+    print("SELL CSV:", NEWS_SELL_FILE)
     print("=" * 70)
 
 
