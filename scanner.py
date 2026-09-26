@@ -1,12 +1,15 @@
-print("===== NSE SCANNER VERSION 2026-09-25-V6.2 =====")
-print("===== DAILY + 15M HULL/SMA + RSI + RVOL + TELEGRAM =====")
+print("===== NSE SCANNER VERSION 2026-09-26-V7 NEWS =====")
+print("===== DAILY + 15M HULL/SMA + RSI + RVOL + NEWS + TELEGRAM =====")
 
 import os
 import json
 import html
+import time
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
+from email.utils import parsedate_to_datetime
+from urllib.parse import quote, quote_plus
 
 import pandas as pd
 from tvscreener import StockScreener, StockField, Market
@@ -20,20 +23,76 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 SENT_FILE = "sent_alerts.json"
+NEWS_FILE = "Stocks_News_Analysis.csv"
 
-# Scanner cooldown is independent of GitHub Actions schedule.
 COOLDOWN_MINUTES = 15
 
-# 15-minute entry conditions
 RSI_MIN = 40
 RSI_MAX = 70
 RVOL_MIN = 1.0
 
-# Fetch enough Indian stock rows so the daily universe is not
-# artificially limited to the first 500 rows.
 PAGE_SIZE = 2000
 
 IST = timezone(timedelta(hours=5, minutes=30))
+
+# News is an additional confirmation only.
+# It does NOT change the technical Strong Buy / Strong Sell signal.
+NEWS_MAX_ITEMS = 5
+NEWS_MAX_AGE_HOURS = 72
+COMPANY_NEWS_WEIGHT = 0.70
+MARKET_SENTIMENT_WEIGHT = 0.30
+NEWS_POSITIVE_THRESHOLD = 0.20
+NEWS_NEGATIVE_THRESHOLD = -0.20
+
+MARKET_QUERY = "Indian stock market Nifty Sensex FII DII Fed crude oil rupee India"
+
+
+# =========================================================
+# NEWS KEYWORDS
+# =========================================================
+
+COMPANY_POSITIVE = {
+    "profit", "profits", "profit rises", "profit jumps", "profit growth",
+    "revenue rises", "revenue growth", "sales growth", "order win",
+    "order wins", "large order", "new order", "contract win",
+    "contract wins", "strong results", "better results", "beat estimates",
+    "beats estimates", "upgrade", "upgraded", "buyback", "dividend",
+    "dividend increase", "bonus", "capacity expansion", "expansion",
+    "partnership", "approval", "regulatory approval", "launch",
+    "record profit", "record revenue", "ebitda rises", "ebitda growth",
+    "debt reduction", "debt falls", "funding", "investment"
+}
+
+COMPANY_NEGATIVE = {
+    "loss", "losses", "loss widens", "profit falls", "profit declines",
+    "revenue falls", "sales decline", "weak results", "miss estimates",
+    "misses estimates", "downgrade", "downgraded", "fraud", "scam",
+    "investigation", "penalty", "fine", "default", "debt crisis",
+    "debt rises", "resignation", "resigns", "strike", "shutdown",
+    "plant shutdown", "fire", "accident", "lawsuit", "legal action",
+    "regulatory action", "warning", "pledge", "pledged shares",
+    "order cancellation", "cancelled order", "guidance cut"
+}
+
+MARKET_POSITIVE = {
+    "nifty rises", "nifty gains", "sensex gains", "sensex rises",
+    "stocks rise", "stocks gain", "market gains", "market rises",
+    "fii buying", "fii inflow", "dii buying", "dii inflow",
+    "rate cut", "rate cuts", "fed cut", "fed rate cut",
+    "cooling inflation", "inflation falls", "rupee gains",
+    "crude falls", "oil prices fall", "global markets gain",
+    "wall street gains", "nasdaq gains", "dow gains", "s&p gains"
+}
+
+MARKET_NEGATIVE = {
+    "nifty falls", "nifty declines", "sensex falls", "sensex declines",
+    "stocks fall", "stocks decline", "market falls", "market declines",
+    "fii selling", "fii outflow", "dii selling", "dii outflow",
+    "rate hike", "rate hikes", "fed hike", "fed rate hike",
+    "inflation rises", "rupee falls", "crude rises", "oil prices rise",
+    "global markets fall", "wall street falls", "nasdaq falls",
+    "dow falls", "s&p falls", "recession fears", "geopolitical tensions"
+}
 
 
 # =========================================================
@@ -48,31 +107,50 @@ def send_telegram(msg):
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": msg,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
+    # Keep each Telegram message safely below the API limit.
+    chunks = []
+    remaining = msg
 
-    try:
-        response = requests.post(url, data=payload, timeout=20)
+    while len(remaining) > 3800:
+        cut = remaining.rfind("\n", 0, 3800)
+        if cut < 1000:
+            cut = 3800
+        chunks.append(remaining[:cut])
+        remaining = remaining[cut:].lstrip("\n")
 
-        print("Telegram HTTP Status:", response.status_code)
-        print("Telegram Response:", response.text)
+    if remaining:
+        chunks.append(remaining)
 
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("ok") is True:
-                print("Telegram message sent successfully")
-                return True
+    all_ok = True
 
-        print("Telegram message failed")
-        return False
+    for chunk in chunks:
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": chunk,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
 
-    except Exception as e:
-        print("Telegram error:", e)
-        return False
+        try:
+            response = requests.post(url, data=payload, timeout=20)
+
+            print("Telegram HTTP Status:", response.status_code)
+            print("Telegram Response:", response.text)
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("ok") is True:
+                    print("Telegram message sent successfully")
+                    continue
+
+            print("Telegram message failed")
+            all_ok = False
+
+        except Exception as e:
+            print("Telegram error:", e)
+            all_ok = False
+
+    return all_ok
 
 
 # =========================================================
@@ -86,9 +164,7 @@ def load_sent():
     try:
         with open(SENT_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-
         return data if isinstance(data, dict) else {}
-
     except Exception as e:
         print("Error reading sent file:", e)
         return {}
@@ -98,9 +174,7 @@ def save_sent(data):
     try:
         with open(SENT_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-
         return True
-
     except Exception as e:
         print("Error saving sent file:", e)
         return False
@@ -133,13 +207,10 @@ def numeric(series):
 
 
 def find_column(df, exact_names=(), contains_all=()):
-    # 1) Exact match first.
     for name in exact_names:
         if name in df.columns:
             return name
 
-    # 2) Normalized text match. This handles TradingView names such as:
-    #    "Simple Moving Average (50) (15)" and spacing/punctuation changes.
     def norm(value):
         return "".join(ch.lower() for ch in str(value) if ch.isalnum())
 
@@ -177,13 +248,10 @@ def get_signal(value):
 
     if value >= 0.5:
         return "STRONG BUY"
-
     if value <= -0.5:
         return "STRONG SELL"
-
     if value >= 0.1:
         return "BUY"
-
     if value <= -0.1:
         return "SELL"
 
@@ -207,14 +275,6 @@ def get_float(row, column, default=None):
 
 # =========================================================
 # DAILY SCAN
-# =========================================================
-# STEP 1:
-# BUY  = Daily HULLMA20 > Daily SMA50
-# SELL = Daily HULLMA20 < Daily SMA50
-#
-# IMPORTANT:
-# We intentionally compare HULL and SMA in pandas. This avoids
-# depending on a library/version-specific field-to-field filter.
 # =========================================================
 
 def get_daily_data():
@@ -284,21 +344,6 @@ def get_daily_data():
 # =========================================================
 # 15-MINUTE SCAN
 # =========================================================
-# STEP 2:
-# BUY:
-#   15M HULLMA20 > 15M SMA50
-#   RSI 40..70
-#   RVOL > 1
-#   Recommend All|15 >= 0.5
-#
-# SELL:
-#   15M HULLMA20 < 15M SMA50
-#   RSI 40..70
-#   RVOL > 1
-#   Recommend All|15 <= -0.5
-#
-# All technical indicators below are explicitly 15-minute.
-# =========================================================
 
 def get_15min_data():
     hull15 = StockField.HULLMA20.with_interval("15")
@@ -321,8 +366,6 @@ def get_15min_data():
         StockField.RECOMMEND_ALL_15,
     )
 
-    # Server-side filters only on single-field conditions.
-    # HULL vs SMA is compared safely in pandas below.
     ss.where(rsi15.between(RSI_MIN, RSI_MAX))
     ss.where(rvol15 > RVOL_MIN)
 
@@ -434,12 +477,293 @@ def get_15min_data():
 
 
 # =========================================================
-# COOLDOWN
+# NEWS HELPERS
 # =========================================================
-# BUY and SELL have separate cooldown keys.
-# Example:
-#   RELIANCE_STRONG BUY
-#   RELIANCE_STRONG SELL
+
+def normalize_news_text(text):
+    return " ".join(str(text or "").lower().split())
+
+
+def keyword_score(text, positive_words, negative_words):
+    text = normalize_news_text(text)
+
+    positive_hits = sum(1 for word in positive_words if word in text)
+    negative_hits = sum(1 for word in negative_words if word in text)
+
+    total = positive_hits + negative_hits
+
+    if total == 0:
+        return 0.0, positive_hits, negative_hits
+
+    score = (positive_hits - negative_hits) / total
+    return max(-1.0, min(1.0, score)), positive_hits, negative_hits
+
+
+def parse_news_date(value):
+    if not value:
+        return None
+
+    try:
+        dt = parsedate_to_datetime(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def fetch_google_news(query, max_items=NEWS_MAX_ITEMS):
+    url = (
+        "https://news.google.com/rss/search?"
+        f"q={quote_plus(query)}&hl=en-IN&gl=IN&ceid=IN:en"
+    )
+
+    try:
+        response = requests.get(
+            url,
+            timeout=20,
+            headers={"User-Agent": "Mozilla/5.0 NSE-Scanner"},
+        )
+        response.raise_for_status()
+
+        root = ET.fromstring(response.content)
+
+        articles = []
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=NEWS_MAX_AGE_HOURS)
+
+        for item in root.findall(".//item"):
+            title = item.findtext("title", default="").strip()
+            pub_date = item.findtext("pubDate", default="").strip()
+            link = item.findtext("link", default="").strip()
+
+            dt = parse_news_date(pub_date)
+
+            if dt is not None and dt < cutoff:
+                continue
+
+            if title:
+                articles.append({
+                    "title": title,
+                    "date": dt,
+                    "link": link,
+                })
+
+            if len(articles) >= max_items:
+                break
+
+        return articles
+
+    except Exception as e:
+        print("News fetch error:", query, e)
+        return []
+
+
+def analyze_company_news(symbol, company_name):
+    name = str(company_name or "").strip()
+
+    if name:
+        query = f'"{symbol}" "{name}" NSE stock India'
+    else:
+        query = f'"{symbol}" NSE stock India'
+
+    articles = fetch_google_news(query)
+
+    if not articles:
+        return {
+            "Company News": "NEUTRAL",
+            "Company News Score": 0.0,
+            "News Headline": "No recent company news found",
+            "News Articles": 0,
+        }
+
+    scores = []
+    headlines = []
+
+    for article in articles:
+        title = article["title"]
+        score, _, _ = keyword_score(
+            title,
+            COMPANY_POSITIVE,
+            COMPANY_NEGATIVE,
+        )
+        scores.append(score)
+        headlines.append(title)
+
+    score = sum(scores) / len(scores) if scores else 0.0
+
+    if score > NEWS_POSITIVE_THRESHOLD:
+        label = "POSITIVE"
+    elif score < NEWS_NEGATIVE_THRESHOLD:
+        label = "NEGATIVE"
+    else:
+        label = "NEUTRAL"
+
+    return {
+        "Company News": label,
+        "Company News Score": round(score, 3),
+        "News Headline": headlines[0][:300] if headlines else "No headline",
+        "News Articles": len(articles),
+    }
+
+
+def analyze_market_sentiment():
+    articles = fetch_google_news(MARKET_QUERY, max_items=10)
+
+    if not articles:
+        return {
+            "Market Sentiment": "NEUTRAL",
+            "Market Sentiment Score": 0.0,
+        }
+
+    scores = []
+
+    for article in articles:
+        score, _, _ = keyword_score(
+            article["title"],
+            MARKET_POSITIVE,
+            MARKET_NEGATIVE,
+        )
+        scores.append(score)
+
+    score = sum(scores) / len(scores) if scores else 0.0
+
+    if score > NEWS_POSITIVE_THRESHOLD:
+        label = "POSITIVE"
+    elif score < NEWS_NEGATIVE_THRESHOLD:
+        label = "NEGATIVE"
+    else:
+        label = "NEUTRAL"
+
+    return {
+        "Market Sentiment": label,
+        "Market Sentiment Score": round(score, 3),
+    }
+
+
+def final_news_signal(company_score, market_score):
+    score = (
+        COMPANY_NEWS_WEIGHT * float(company_score)
+        + MARKET_SENTIMENT_WEIGHT * float(market_score)
+    )
+
+    if score > NEWS_POSITIVE_THRESHOLD:
+        signal = "POSITIVE"
+    elif score < NEWS_NEGATIVE_THRESHOLD:
+        signal = "NEGATIVE"
+    else:
+        signal = "NEUTRAL"
+
+    return round(score, 3), signal
+
+
+def analyze_qualified_news(df):
+    """
+    Run ONLY after final technical Strong Buy / Strong Sell + Daily
+    direction confirmation.
+
+    News never changes the technical Signal column.
+    """
+    if df.empty:
+        return df.copy()
+
+    result = df.copy()
+
+    print()
+    print("=" * 70)
+    print("NEWS ANALYSIS START")
+    print("=" * 70)
+
+    market = analyze_market_sentiment()
+
+    print(
+        "Market Sentiment:",
+        market["Market Sentiment"],
+        "| Score:",
+        market["Market Sentiment Score"],
+    )
+
+    company_news = []
+    company_scores = []
+    headlines = []
+    article_counts = []
+
+    for _, row in result.iterrows():
+        symbol = clean_symbol(row["Symbol"])
+        company_name = row.get("Name", "")
+
+        print(f"News analysis: {symbol}")
+
+        company = analyze_company_news(symbol, company_name)
+
+        company_news.append(company["Company News"])
+        company_scores.append(company["Company News Score"])
+        headlines.append(company["News Headline"])
+        article_counts.append(company["News Articles"])
+
+        time.sleep(0.25)
+
+    result["Company News"] = company_news
+    result["Company News Score"] = company_scores
+    result["Market Sentiment"] = market["Market Sentiment"]
+    result["Market Sentiment Score"] = market["Market Sentiment Score"]
+    result["News Score"] = 0.0
+    result["News Signal"] = "NEUTRAL"
+    result["News Headline"] = headlines
+    result["News Articles"] = article_counts
+
+    final_scores = []
+    final_signals = []
+
+    for _, row in result.iterrows():
+        score, signal = final_news_signal(
+            row["Company News Score"],
+            row["Market Sentiment Score"],
+        )
+        final_scores.append(score)
+        final_signals.append(signal)
+
+    result["News Score"] = final_scores
+    result["News Signal"] = final_signals
+
+    # Save final qualified stocks with all requested news columns.
+    save_columns = [
+        "Symbol",
+        "Name",
+        "Signal",
+        "DailyDirection",
+        "Price",
+        "_RSI_15",
+        "_RVOL_15",
+        "_RATING_15",
+        "Company News",
+        "Market Sentiment",
+        "News Score",
+        "News Signal",
+        "News Headline",
+        "News Articles",
+    ]
+
+    save_columns = [c for c in save_columns if c in result.columns]
+
+    try:
+        result[save_columns].to_csv(
+            NEWS_FILE,
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(f"News analysis saved: {NEWS_FILE}")
+    except Exception as e:
+        print("News CSV save error:", e)
+
+    print("=" * 70)
+    print("NEWS ANALYSIS FINISHED")
+    print("=" * 70)
+
+    return result
+
+
+# =========================================================
+# COOLDOWN
 # =========================================================
 
 def apply_cooldown(df, sent, now):
@@ -490,10 +814,7 @@ def format_stock_line(row):
     signal = str(row.get("Signal", "N/A"))
 
     price = get_float(row, "Price", None)
-    if price is None:
-        price_text = "N/A"
-    else:
-        price_text = f"{price:.2f}"
+    price_text = "N/A" if price is None else f"{price:.2f}"
 
     rsi = get_float(row, "_RSI_15", None)
     rsi_text = "N/A" if rsi is None else f"{rsi:.1f}"
@@ -504,8 +825,18 @@ def format_stock_line(row):
     rating = get_float(row, "_RATING_15", None)
     rating_text = "N/A" if rating is None else f"{rating:.2f}"
 
+    news_signal = str(row.get("News Signal", "NEUTRAL")).upper()
+
+    if news_signal == "POSITIVE":
+        news_icon = "🟢"
+    elif news_signal == "NEGATIVE":
+        news_icon = "🔴"
+    else:
+        news_icon = "⚪"
+
     safe_symbol = html.escape(symbol)
     safe_signal = html.escape(signal)
+    safe_news = html.escape(news_signal)
     tv_url = tradingview_link(symbol)
 
     return (
@@ -514,7 +845,8 @@ def format_stock_line(row):
         f" | Price: {price_text}"
         f" | RSI: {rsi_text}"
         f" | RVOL: {rvol_text}"
-        f" | Rec: {rating_text}\n"
+        f" | Rec: {rating_text}"
+        f" | News: {news_icon} <b>{safe_news}</b>\n"
     )
 
 
@@ -527,7 +859,6 @@ def build_status_message(
     new_buy_count,
     new_sell_count,
 ):
-    total_qualified = qualified_buy_count + qualified_sell_count
     total_new = new_buy_count + new_sell_count
 
     return (
@@ -588,7 +919,7 @@ def main():
 
     print()
     print("=" * 70)
-    print("NSE SCANNER V6")
+    print("NSE SCANNER V7 NEWS")
     print(
         "UTC TIME:",
         datetime.now(timezone.utc).strftime("%d-%b-%Y %H:%M:%S"),
@@ -649,7 +980,7 @@ def main():
         return
 
     # -----------------------------------------------------
-    # APPLY DAILY DIRECTION
+    # STEP 3: DAILY DIRECTION CONFIRMATION
     # -----------------------------------------------------
 
     qualified_15m["DailyDirection"] = qualified_15m["Symbol"].map(
@@ -684,10 +1015,27 @@ def main():
     print("Final SELL:", len(qualified_sell))
 
     # -----------------------------------------------------
-    # COOLDOWN
+    # STEP 4: NEWS ANALYSIS
+    # ONLY FINAL TECHNICAL QUALIFIED STOCKS
+    # -----------------------------------------------------
+
+    if not qualified_15m.empty:
+        qualified_15m = analyze_qualified_news(qualified_15m)
+
+        qualified_buy = qualified_15m[
+            qualified_15m["Signal"] == "STRONG BUY"
+        ].copy()
+
+        qualified_sell = qualified_15m[
+            qualified_15m["Signal"] == "STRONG SELL"
+        ].copy()
+
+    # -----------------------------------------------------
+    # STEP 5: COOLDOWN
     # -----------------------------------------------------
 
     sent = load_sent()
+
     new_rows = apply_cooldown(
         qualified_15m,
         sent,
@@ -703,6 +1051,24 @@ def main():
         row for row in new_rows
         if str(row.get("Signal", "")).upper() == "STRONG SELL"
     ]
+
+    # -----------------------------------------------------
+    # NO FINAL QUALIFIED STOCKS
+    # -----------------------------------------------------
+
+    if qualified_15m.empty:
+        status_msg = build_status_message(
+            now,
+            len(daily_buy_symbols),
+            len(daily_sell_symbols),
+            0,
+            0,
+            0,
+            0,
+        )
+        send_telegram(status_msg)
+        print("No final technical qualified stocks.")
+        return
 
     # -----------------------------------------------------
     # NO NEW ALERT
@@ -762,10 +1128,6 @@ def main():
     else:
         print("Telegram failed. sent_alerts.json was NOT updated.")
 
-    # -----------------------------------------------------
-    # FINISH
-    # -----------------------------------------------------
-
     print()
     print("=" * 70)
     print("Finished IST:", now.strftime("%d-%b-%Y %H:%M:%S"))
@@ -775,6 +1137,7 @@ def main():
     print("Final SELL:", len(qualified_sell))
     print("New BUY:", len(new_buy_rows))
     print("New SELL:", len(new_sell_rows))
+    print("News CSV:", NEWS_FILE)
     print("=" * 70)
 
 
