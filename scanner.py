@@ -955,38 +955,39 @@ def build_alert_message(
         for row in new_sell_rows:
             msg += format_stock_line(row)
         msg += "\n"
-
+        
+    msg += "📄 <b>Full details in attached CSV</b> | <b>CSV में पूरी जानकारी</b>"
     msg += f"⏱ Cooldown: <b>{COOLDOWN_MINUTES} min</b>"
 
     return msg
 
 
-def build_bilingual_summary(now, new_buy_rows, new_sell_rows):
+# def build_bilingual_summary(now, new_buy_rows, new_sell_rows):
     """
-    Build a compact Hindi/English summary message.
-    """
-    buy_count = len(new_buy_rows)
-    sell_count = len(new_sell_rows)
-    total = buy_count + sell_count
+  ##  Build a compact Hindi/English summary message.
+   # """
+  #  buy_count = len(new_buy_rows)
+   # sell_count = len(new_sell_rows)
+  #  total = buy_count + sell_count
 
-    buy_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_buy_rows])
-    sell_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_sell_rows])
+   # buy_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_buy_rows])
+    #sell_symbols = ", ".join([clean_symbol(row["Symbol"]) for row in new_sell_rows])
 
-    msg = (
-        f"🎯 <b>NSE Alert Summary</b> | <b>NSE अलर्ट सारांश</b>\n"
-        f"⏰ {now.strftime('%d-%b %H:%M')} IST\n\n"
-    )
+   # msg = (
+   #     f"🎯 <b>NSE Alert Summary</b> | <b>NSE अलर्ट सारांश</b>\n"
+    #    f"⏰ {now.strftime('%d-%b %H:%M')} IST\n\n"
+   # )
 
-    # English
-    msg += f"<b>📊 English (अंग्रेजी)</b>\n"
-    msg += f"Total Alerts: <b>{total}</b> | "
-    msg += f"🟢 BUY: <b>{buy_count}</b> | "
-    msg += f"🔴 SELL: <b>{sell_count}</b>\n\n"
+   # # English
+   # msg += f"<b>📊 English (अंग्रेजी)</b>\n"
+  #  msg += f"Total Alerts: <b>{total}</b> | "
+   # msg += f"🟢 BUY: <b>{buy_count}</b> | "
+   # msg += f"🔴 SELL: <b>{sell_count}</b>\n\n"
 
-    if buy_symbols:
-        msg += f"<b>Buy Stocks:</b>\n{buy_symbols}\n\n"
-    if sell_symbols:
-        msg += f"<b>Sell Stocks:</b>\n{sell_symbols}\n\n"
+  #  if buy_symbols:
+    #    msg += f"<b>Buy Stocks:</b>\n{buy_symbols}\n\n"
+    #if sell_symbols:
+      #  msg += f"<b>Sell Stocks:</b>\n{sell_symbols}\n\n"
 
     # Hindi
    # msg += f"<b>📊 हिंदी (Hindi)</b>\n"
@@ -999,9 +1000,9 @@ def build_bilingual_summary(now, new_buy_rows, new_sell_rows):
     #if sell_symbols:
      #   msg += f"<b>बिक्री के स्टॉक:</b>\n{sell_symbols}\n\n"
 
-    msg += "📄 <b>Full details in attached CSV</b> | <b>CSV में पूरी जानकारी</b>"
+   # msg += "📄 <b>Full details in attached CSV</b> | <b>CSV में पूरी जानकारी</b>"
 
-    return msg
+   # return msg
 
 
 # =========================================================
