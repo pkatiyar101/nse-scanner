@@ -989,15 +989,15 @@ def build_bilingual_summary(now, new_buy_rows, new_sell_rows):
         msg += f"<b>Sell Stocks:</b>\n{sell_symbols}\n\n"
 
     # Hindi
-    msg += f"<b>📊 हिंदी (Hindi)</b>\n"
-    msg += f"कुल अलर्ट: <b>{total}</b> | "
-    msg += f"🟢 खरीद: <b>{buy_count}</b> | "
-    msg += f"🔴 बिक्री: <b>{sell_count}</b>\n\n"
+   # msg += f"<b>📊 हिंदी (Hindi)</b>\n"
+    #msg += f"कुल अलर्ट: <b>{total}</b> | "
+   # msg += f"🟢 खरीद: <b>{buy_count}</b> | "
+    #msg += f"🔴 बिक्री: <b>{sell_count}</b>\n\n"
 
-    if buy_symbols:
-        msg += f"<b>खरीद के स्टॉक:</b>\n{buy_symbols}\n\n"
-    if sell_symbols:
-        msg += f"<b>बिक्री के स्टॉक:</b>\n{sell_symbols}\n\n"
+    #if buy_symbols:
+     #   msg += f"<b>खरीद के स्टॉक:</b>\n{buy_symbols}\n\n"
+    #if sell_symbols:
+     #   msg += f"<b>बिक्री के स्टॉक:</b>\n{sell_symbols}\n\n"
 
     msg += "📄 <b>Full details in attached CSV</b> | <b>CSV में पूरी जानकारी</b>"
 
