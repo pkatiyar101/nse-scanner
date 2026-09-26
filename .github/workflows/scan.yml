@@ -1,9 +1,10 @@
-name: NSE Scanner
+from pathlib import Path
+
+workflow = r'''name: NSE Scanner
 
 on:
   # Runs every 15 minutes from 9:15 AM to 3:30 PM IST, Monday to Friday
   # GitHub cron is in UTC.
-  # IST = UTC + 5:30
   # 9:15 AM IST = 3:45 AM UTC
   # 3:30 PM IST = 10:00 AM UTC
   schedule:
@@ -12,7 +13,8 @@ on:
     - cron: "0 10 * * 1-5"
   workflow_dispatch:
 
-# Prevent two scanner jobs from modifying sent_alerts.json at the same time.
+# Prevent two scanner jobs from modifying sent_alerts.json or
+# Stocks_News_Analysis.csv at the same time.
 concurrency:
   group: nse-scanner
   cancel-in-progress: false
@@ -50,7 +52,7 @@ jobs:
         run: |
           python scanner.py
 
-      - name: Save sent alerts state
+      - name: Save sent alerts state and news analysis
         if: always()
         shell: bash
         env:
@@ -63,10 +65,30 @@ jobs:
             git add sent_alerts.json
           fi
 
+          if [ -f Stocks_News_Analysis.csv ]; then
+            git add Stocks_News_Analysis.csv
+          fi
+
           if git diff --cached --quiet; then
-            echo "No sent_alerts.json changes to commit."
+            echo "No scanner output changes to commit."
             exit 0
           fi
 
-          git commit -m "update alerts [skip ci]"
+          git commit -m "update alerts and news analysis [skip ci]"
           git push origin HEAD:"$BRANCH_NAME"
+'''
+
+Path("/mnt/data/scan.yml").write_text(workflow, encoding="utf-8")
+
+# Basic YAML-structure sanity checks without requiring PyYAML.
+assert 'name: NSE Scanner' in workflow
+assert 'schedule:' in workflow
+assert 'workflow_dispatch:' in workflow
+assert 'Stocks_News_Analysis.csv' in workflow
+assert 'sent_alerts.json' in workflow
+assert 'python scanner.py' in workflow
+assert 'git push origin HEAD:"$BRANCH_NAME"' in workflow
+
+print("Updated scan.yml created successfully.")
+print("Schedule unchanged: 09:15 to 15:30 IST, every 15 minutes.")
+print("Added persistence for Stocks_News_Analysis.csv.")
