@@ -1106,6 +1106,11 @@ def main():
     print("Final BUY:", len(qualified_buy))
     print("Final SELL:", len(qualified_sell))
 
+    # Sort by RVOL (descending - highest RVOL first)
+    qualified_buy = qualified_buy.sort_values("_RVOL_15", ascending=False, na_position="last")
+    qualified_sell = qualified_sell.sort_values("_RVOL_15", ascending=False, na_position="last")
+    qualified_15m = qualified_15m.sort_values("_RVOL_15", ascending=False, na_position="last")
+
     # -----------------------------------------------------
     # STEP 4: NEWS ANALYSIS
     # ONLY FINAL TECHNICAL QUALIFIED STOCKS
@@ -1122,6 +1127,10 @@ def main():
             qualified_15m["Signal"] == "STRONG SELL"
         ].copy()
 
+        # Re-sort by RVOL after news analysis
+        qualified_buy = qualified_buy.sort_values("_RVOL_15", ascending=False, na_position="last")
+        qualified_sell = qualified_sell.sort_values("_RVOL_15", ascending=False, na_position="last")
+
     # -----------------------------------------------------
     # STEP 5: COOLDOWN
     # -----------------------------------------------------
@@ -1133,6 +1142,9 @@ def main():
         sent,
         now,
     )
+
+    # Sort new_rows by RVOL (descending)
+    new_rows = sorted(new_rows, key=lambda x: get_float(x, "_RVOL_15", 0), reverse=True)
 
     new_buy_rows = [
         row for row in new_rows
