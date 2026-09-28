@@ -1,19 +1,24 @@
 name: NSE Scanner
 
 on:
-  # Runs every 15 minutes from 9:15 AM to 3:30 PM IST, Monday to Friday
-  # GitHub cron is in UTC.
-  # 9:15 AM IST = 3:45 AM UTC
-  # 3:30 PM IST = 10:00 AM UTC
+  # GitHub cron uses UTC.
+  # IST schedule: 9:15 AM to 3:30 PM, every 15 minutes, Monday-Friday.
+  #
+  # 9:15, 9:30, 9:45 IST = 03:45, 04:00, 04:15 UTC
+  # 3:30 PM IST = 10:00 UTC
   schedule:
-  - cron: "45 3,4,5,6,7,8,9 * * 1-5"  # 9:15 AM, 9:30, 9:45, 10:00, etc. IST
+    - cron: "15,30,45 3 * * 1-5"
+    - cron: "*/15 4-9 * * 1-5"
+    - cron: "0,15,30 10 * * 1-5"
+
+  # Allows manual execution from the Actions tab.
   workflow_dispatch:
 
-# Prevent two scanner jobs from modifying sent_alerts.json or
-# Stocks_News_Analysis.csv at the same time.
+# Only one scanner should modify the output files at a time.
+# A new manual or scheduled run cancels an older active/pending run.
 concurrency:
   group: nse-scanner
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   scan:
@@ -34,7 +39,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+          cache: pip
 
       - name: Install dependencies
         run: |
