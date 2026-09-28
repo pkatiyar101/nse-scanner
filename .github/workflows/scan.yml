@@ -2,20 +2,21 @@ name: NSE Scanner
 
 on:
   schedule:
-    # हर 15 मिनट, IST 9:15 AM से 3:30 PM तक (UTC 3:45 से 10:00 तक)
-    # minute offset 7,22,37,52 से भीड़ कम होती है
-    - cron: "7,22,37,52 3-9 * * 1-5"
-    - cron: "7 10 * * 1-5"
+    # Runs ~2 minutes AFTER each 15-minute candle closes (candles close at
+    # IST :00/:15/:30/:45). UTC minute + 30 = IST minute, so UTC :02,:17,:32,:47
+    # equals IST :32,:47,:02,:17.
+    # First run 04:02 UTC = 09:32 IST, last run 10:02 UTC = 15:32 IST.
+    - cron: "2,17,32,47 4-9 * * 1-5"
+    - cron: "2 10 * * 1-5"
 
   workflow_dispatch:
 
 concurrency:
   group: nse-scanner
-  cancel-in-progress: false    # ← इसे false करें
+  cancel-in-progress: false
 
 jobs:
-  #scan:
-  cron:
+  scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -34,16 +35,18 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "tvscreener==0.5.2" pandas requests
+          python -m pip install -r requirements.txt
 
       - name: Run NSE scanner
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PYTHONUNBUFFERED: "1"
         run: |
           python scanner.py
 
@@ -70,4 +73,17 @@ jobs:
           fi
 
           git commit -m "update alerts and news analysis [skip ci]"
-          git push origin HEAD:"$BRANCH_NAME"
+
+          # Retry push in case another commit landed on the branch meanwhile
+          for attempt in 1 2 3; do
+            git pull --rebase origin "$BRANCH_NAME" || true
+            if git push origin HEAD:"$BRANCH_NAME"; then
+              echo "Push succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "Push failed (attempt $attempt), retrying..."
+            sleep $((attempt * 3))
+          done
+
+          echo "Push failed after 3 attempts"
+          exit 1
