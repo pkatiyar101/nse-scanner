@@ -1,13 +1,15 @@
-print("===== NSE SCANNER VERSION 2026-09-26-V7 NEWS =====")
+print("===== NSE SCANNER VERSION 2026-09-28-V8 =====")
 print("===== DAILY + 15M HULL/SMA + RSI + RVOL + NEWS + TELEGRAM =====")
 
 import os
+import re
 import json
 import html
 import time
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from datetime import time as dtime
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote, quote_plus
 
@@ -23,11 +25,17 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 SENT_FILE = "sent_alerts.json"
+HOLIDAY_FILE = "nse_holidays.json"   # optional: JSON list like ["2026-10-02"]
 NEWS_FILE = "Stocks_News_Analysis.csv"
 NEWS_BUY_FILE = "Stocks_BUY_Analysis.csv"
 NEWS_SELL_FILE = "Stocks_SELL_Analysis.csv"
 
-COOLDOWN_MINUTES = 15
+# Cooldown per stock+signal. Keep this well above the 15-minute schedule
+# so a stock that keeps its signal does not alert on every run.
+COOLDOWN_MINUTES = 60
+
+# Sent-alert entries older than this are removed from sent_alerts.json
+SENT_PRUNE_HOURS = 24
 
 RSI_MIN = 40
 RSI_MAX = 70
@@ -35,7 +43,15 @@ RVOL_MIN = 1.0
 
 PAGE_SIZE = 2000
 
+# Send the "NSE SCAN" status message even when there are no new alerts.
+# Set to False to receive Telegram messages only when there is a new alert.
+SEND_STATUS_WHEN_NO_ALERT = True
+
 IST = timezone(timedelta(hours=5, minutes=30))
+
+# Market window (IST). Close is padded because GitHub cron can start late.
+MARKET_OPEN = dtime(9, 15)
+MARKET_CLOSE = dtime(15, 45)
 
 # News is an additional confirmation only.
 # It does NOT change the technical Strong Buy / Strong Sell signal.
@@ -95,6 +111,35 @@ MARKET_NEGATIVE = {
     "global markets fall", "wall street falls", "nasdaq falls",
     "dow falls", "s&p falls", "recession fears", "geopolitical tensions"
 }
+
+
+# =========================================================
+# MARKET HOURS / HOLIDAYS
+# =========================================================
+
+def load_holidays():
+    if not os.path.exists(HOLIDAY_FILE):
+        return set()
+
+    try:
+        with open(HOLIDAY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return {str(x).strip() for x in data}
+    except Exception as e:
+        print("Error reading holiday file:", e)
+
+    return set()
+
+
+def market_is_open(now):
+    if now.weekday() >= 5:
+        return False
+
+    if now.strftime("%Y-%m-%d") in load_holidays():
+        return False
+
+    return MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 
 # =========================================================
@@ -231,6 +276,23 @@ def save_sent(data):
         return False
 
 
+def prune_sent(sent, now, hours=SENT_PRUNE_HOURS):
+    keep = {}
+
+    for key, value in sent.items():
+        try:
+            t = datetime.fromisoformat(value)
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=IST)
+            if now - t < timedelta(hours=hours):
+                keep[key] = value
+        except Exception:
+            # Unreadable timestamp: drop the entry
+            pass
+
+    return keep
+
+
 # =========================================================
 # HELPERS
 # =========================================================
@@ -346,6 +408,13 @@ def get_daily_data():
     if df.empty:
         return df, set(), set()
 
+    print("Daily rows fetched:", len(df))
+    if len(df) >= PAGE_SIZE:
+        print(
+            f"WARNING: daily result hit PAGE_SIZE={PAGE_SIZE}. "
+            "Some stocks may be missing; increase PAGE_SIZE or add paging."
+        )
+
     print_columns("DAILY", df)
 
     if "Symbol" not in df.columns:
@@ -426,6 +495,13 @@ def get_15min_data():
 
     if df.empty:
         return df
+
+    print("15-minute rows fetched:", len(df))
+    if len(df) >= PAGE_SIZE:
+        print(
+            f"WARNING: 15-minute result hit PAGE_SIZE={PAGE_SIZE}. "
+            "Some stocks may be missing."
+        )
 
     print_columns("15-MINUTE", df)
 
@@ -538,8 +614,13 @@ def normalize_news_text(text):
 def keyword_score(text, positive_words, negative_words):
     text = normalize_news_text(text)
 
-    positive_hits = sum(1 for word in positive_words if word in text)
-    negative_hits = sum(1 for word in negative_words if word in text)
+    def hit(word):
+        # Whole-word match, so "fine" does not match "refined"
+        # and "fire" does not match "fired up"-style substrings.
+        return re.search(r"(?<!\w)" + re.escape(word) + r"(?!\w)", text) is not None
+
+    positive_hits = sum(1 for word in positive_words if hit(word))
+    negative_hits = sum(1 for word in negative_words if hit(word))
 
     total = positive_hits + negative_hits
 
@@ -709,8 +790,8 @@ def final_news_signal(company_score, market_score):
 
 def analyze_qualified_news(df):
     """
-    Run ONLY after final technical Strong Buy / Strong Sell + Daily
-    direction confirmation.
+    Run ONLY on NEW alert rows: final technical Strong Buy / Strong Sell,
+    Daily direction confirmed, and past the cooldown check.
 
     News never changes the technical Signal column.
     """
@@ -838,6 +919,7 @@ def analyze_qualified_news(df):
 # =========================================================
 
 def apply_cooldown(df, sent, now):
+    """Returns a DataFrame of rows that are NOT in cooldown."""
     new_rows = []
 
     for _, row in df.iterrows():
@@ -873,7 +955,10 @@ def apply_cooldown(df, sent, now):
         row["_ALERT_KEY"] = key
         new_rows.append(row)
 
-    return new_rows
+    if not new_rows:
+        return df.iloc[0:0].copy()
+
+    return pd.DataFrame(new_rows).reset_index(drop=True)
 
 
 # =========================================================
@@ -946,13 +1031,14 @@ def build_status_message(
     )
 
 
-def build_buy_message(
+def build_alert_message(
     now,
     daily_buy_count,
     daily_sell_count,
     qualified_buy_count,
     qualified_sell_count,
-    new_buy_rows,
+    rows,
+    side,
 ):
     msg = (
         f"📊 <b>NSE SCAN</b> "
@@ -963,9 +1049,10 @@ def build_buy_message(
         f"🔴 15M Strong SELL: <b>{qualified_sell_count}</b>\n\n"
     )
 
-    if new_buy_rows:
-        msg += f"🟢 <b>STRONG BUY ({len(new_buy_rows)})</b>\n"
-        for row in new_buy_rows:
+    if rows:
+        icon = "🟢" if side == "BUY" else "🔴"
+        msg += f"{icon} <b>STRONG {side} ({len(rows)})</b>\n"
+        for row in rows:
             msg += format_stock_line(row)
         msg += "\n"
 
@@ -974,32 +1061,12 @@ def build_buy_message(
     return msg
 
 
-def build_sell_message(
-    now,
-    daily_buy_count,
-    daily_sell_count,
-    qualified_buy_count,
-    qualified_sell_count,
-    new_sell_rows,
-):
-    msg = (
-        f"📊 <b>NSE SCAN</b> "
-        f"({now.strftime('%d-%b %H:%M')} IST)\n\n"
-        f"📈 Daily BUY: <b>{daily_buy_count}</b>\n"
-        f"📉 Daily SELL: <b>{daily_sell_count}</b>\n"
-        f"🟢 15M Strong BUY: <b>{qualified_buy_count}</b>\n"
-        f"🔴 15M Strong SELL: <b>{qualified_sell_count}</b>\n\n"
-    )
-
-    if new_sell_rows:
-        msg += f"🔴 <b>STRONG SELL ({len(new_sell_rows)})</b>\n"
-        for row in new_sell_rows:
-            msg += format_stock_line(row)
-        msg += "\n"
-
-    msg += f"⏱ Cooldown: <b>{COOLDOWN_MINUTES} min</b>"
-
-    return msg
+def maybe_send_status(msg):
+    if SEND_STATUS_WHEN_NO_ALERT:
+        send_telegram(msg)
+    else:
+        print("Status message suppressed (SEND_STATUS_WHEN_NO_ALERT=False)")
+        print(msg)
 
 
 # =========================================================
@@ -1011,7 +1078,7 @@ def main():
 
     print()
     print("=" * 70)
-    print("NSE SCANNER V7 NEWS")
+    print("NSE SCANNER V8")
     print(
         "UTC TIME:",
         datetime.now(timezone.utc).strftime("%d-%b-%Y %H:%M:%S"),
@@ -1021,6 +1088,16 @@ def main():
         now.strftime("%d-%b-%Y %H:%M:%S"),
     )
     print("=" * 70)
+
+    # -----------------------------------------------------
+    # STEP 0: MARKET HOURS GUARD (manual runs always proceed)
+    # -----------------------------------------------------
+
+    is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+
+    if not is_manual and not market_is_open(now):
+        print("Market closed or holiday. Skipping scan.")
+        return
 
     # -----------------------------------------------------
     # STEP 1: DAILY
@@ -1043,9 +1120,12 @@ def main():
             f"📉 Daily SELL: <b>0</b>\n"
             f"⏱ Cooldown: <b>{COOLDOWN_MINUTES} min</b>"
         )
-        send_telegram(msg)
+        maybe_send_status(msg)
         print("No daily candidates. Scanner finished.")
         return
+
+    daily_buy_count = len(daily_buy_symbols)
+    daily_sell_count = len(daily_sell_symbols)
 
     # -----------------------------------------------------
     # STEP 2: 15 MINUTE
@@ -1060,15 +1140,15 @@ def main():
     if qualified_15m.empty:
         msg = build_status_message(
             now,
-            len(daily_buy_symbols),
-            len(daily_sell_symbols),
+            daily_buy_count,
+            daily_sell_count,
             0,
             0,
             0,
             0,
         )
         print("No 15-minute qualified stocks.")
-        send_telegram(msg)
+        maybe_send_status(msg)
         return
 
     # -----------------------------------------------------
@@ -1095,56 +1175,70 @@ def main():
         )
     ].copy()
 
-    qualified_buy = qualified_15m[
-        qualified_15m["Signal"] == "STRONG BUY"
-    ].copy()
-
-    qualified_sell = qualified_15m[
-        qualified_15m["Signal"] == "STRONG SELL"
-    ].copy()
-
-    print("Final BUY:", len(qualified_buy))
-    print("Final SELL:", len(qualified_sell))
-
-    # Sort by RVOL (descending - highest RVOL first)
-    qualified_buy = qualified_buy.sort_values("_RVOL_15", ascending=False, na_position="last")
-    qualified_sell = qualified_sell.sort_values("_RVOL_15", ascending=False, na_position="last")
-    qualified_15m = qualified_15m.sort_values("_RVOL_15", ascending=False, na_position="last")
-
-    # -----------------------------------------------------
-    # STEP 4: NEWS ANALYSIS
-    # ONLY FINAL TECHNICAL QUALIFIED STOCKS
-    # -----------------------------------------------------
-
-    if not qualified_15m.empty:
-        qualified_15m = analyze_qualified_news(qualified_15m)
-
-        qualified_buy = qualified_15m[
-            qualified_15m["Signal"] == "STRONG BUY"
-        ].copy()
-
-        qualified_sell = qualified_15m[
-            qualified_15m["Signal"] == "STRONG SELL"
-        ].copy()
-
-        # Re-sort by RVOL after news analysis
-        qualified_buy = qualified_buy.sort_values("_RVOL_15", ascending=False, na_position="last")
-        qualified_sell = qualified_sell.sort_values("_RVOL_15", ascending=False, na_position="last")
-
-    # -----------------------------------------------------
-    # STEP 5: COOLDOWN
-    # -----------------------------------------------------
-
-    sent = load_sent()
-
-    new_rows = apply_cooldown(
-        qualified_15m,
-        sent,
-        now,
+    qualified_15m = qualified_15m.sort_values(
+        "_RVOL_15", ascending=False, na_position="last"
     )
 
-    # Sort new_rows by RVOL (descending)
-    new_rows = sorted(new_rows, key=lambda x: get_float(x, "_RVOL_15", 0), reverse=True)
+    qualified_buy_count = int((qualified_15m["Signal"] == "STRONG BUY").sum())
+    qualified_sell_count = int((qualified_15m["Signal"] == "STRONG SELL").sum())
+
+    print("Final BUY:", qualified_buy_count)
+    print("Final SELL:", qualified_sell_count)
+
+    if qualified_15m.empty:
+        status_msg = build_status_message(
+            now,
+            daily_buy_count,
+            daily_sell_count,
+            0,
+            0,
+            0,
+            0,
+        )
+        print("No final technical qualified stocks.")
+        maybe_send_status(status_msg)
+        return
+
+    # -----------------------------------------------------
+    # STEP 4: COOLDOWN (before news, so news runs only on new alerts)
+    # -----------------------------------------------------
+
+    sent_raw = load_sent()
+    sent = prune_sent(sent_raw, now)
+    pruned = len(sent) != len(sent_raw)
+
+    new_df = apply_cooldown(qualified_15m, sent, now)
+
+    if new_df.empty:
+        status_msg = build_status_message(
+            now,
+            daily_buy_count,
+            daily_sell_count,
+            qualified_buy_count,
+            qualified_sell_count,
+            0,
+            0,
+        )
+
+        print()
+        print("Telegram status message:")
+        print(status_msg)
+
+        maybe_send_status(status_msg)
+
+        if pruned:
+            save_sent(sent)
+
+        return
+
+    # -----------------------------------------------------
+    # STEP 5: NEWS ANALYSIS (ONLY NEW ALERT ROWS)
+    # -----------------------------------------------------
+
+    new_df = analyze_qualified_news(new_df)
+    new_df = new_df.sort_values("_RVOL_15", ascending=False, na_position="last")
+
+    new_rows = [row for _, row in new_df.iterrows()]
 
     new_buy_rows = [
         row for row in new_rows
@@ -1156,61 +1250,21 @@ def main():
         if str(row.get("Signal", "")).upper() == "STRONG SELL"
     ]
 
-    # -----------------------------------------------------
-    # NO FINAL QUALIFIED STOCKS
-    # -----------------------------------------------------
-
-    if qualified_15m.empty:
-        status_msg = build_status_message(
-            now,
-            len(daily_buy_symbols),
-            len(daily_sell_symbols),
-            0,
-            0,
-            0,
-            0,
-        )
-        send_telegram(status_msg)
-        print("No final technical qualified stocks.")
-        return
-
-    # -----------------------------------------------------
-    # NO NEW ALERT
-    # -----------------------------------------------------
-
-    if not new_rows:
-        status_msg = build_status_message(
-            now,
-            len(daily_buy_symbols),
-            len(daily_sell_symbols),
-            len(qualified_buy),
-            len(qualified_sell),
-            0,
-            0,
-        )
-
-        print()
-        print("Telegram status message:")
-        print(status_msg)
-
-        send_telegram(status_msg)
-        return
-
     # ====================================================
     # SEND SEPARATE BUY AND SELL BLOCKS + CSV FILES
     # ====================================================
 
     telegram_success = True
 
-    # Send BUY message and CSV separately
     if new_buy_rows:
-        buy_msg = build_buy_message(
+        buy_msg = build_alert_message(
             now,
-            len(daily_buy_symbols),
-            len(daily_sell_symbols),
-            len(qualified_buy),
-            len(qualified_sell),
+            daily_buy_count,
+            daily_sell_count,
+            qualified_buy_count,
+            qualified_sell_count,
             new_buy_rows,
+            "BUY",
         )
 
         print()
@@ -1233,15 +1287,15 @@ def main():
 
     print()
 
-    # Send SELL message and CSV separately
     if new_sell_rows:
-        sell_msg = build_sell_message(
+        sell_msg = build_alert_message(
             now,
-            len(daily_buy_symbols),
-            len(daily_sell_symbols),
-            len(qualified_buy),
-            len(qualified_sell),
+            daily_buy_count,
+            daily_sell_count,
+            qualified_buy_count,
+            qualified_sell_count,
             new_sell_rows,
+            "SELL",
         )
 
         print()
@@ -1281,10 +1335,10 @@ def main():
     print()
     print("=" * 70)
     print("Finished IST:", now.strftime("%d-%b-%Y %H:%M:%S"))
-    print("Daily BUY:", len(daily_buy_symbols))
-    print("Daily SELL:", len(daily_sell_symbols))
-    print("Final BUY:", len(qualified_buy))
-    print("Final SELL:", len(qualified_sell))
+    print("Daily BUY:", daily_buy_count)
+    print("Daily SELL:", daily_sell_count)
+    print("Final BUY:", qualified_buy_count)
+    print("Final SELL:", qualified_sell_count)
     print("New BUY:", len(new_buy_rows))
     print("New SELL:", len(new_sell_rows))
     print("Combined CSV:", NEWS_FILE)
