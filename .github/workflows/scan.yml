@@ -2,24 +2,16 @@ name: NSE Scanner
 
 on:
   schedule:
-    # 9:15–9:45 AM IST = 03:45–04:15 UTC
-    - cron: "45 3 * * 1-5"
-    - cron: "0,15 4 * * 1-5"
-
-    # 10:00 AM–2:45 PM IST = 04:30–09:15 UTC
-    - cron: "*/15 4-9 * * 1-5"
-
-    # 3:00–3:30 PM IST = 09:30–10:00 UTC
-    - cron: "30,45 9 * * 1-5"
-    - cron: "0 10 * * 1-5"
+    # हर 15 मिनट, IST 9:15 AM से 3:30 PM तक (UTC 3:45 से 10:00 तक)
+    # minute offset 7,22,37,52 से भीड़ कम होती है
+    - cron: "7,22,37,52 3-9 * * 1-5"
+    - cron: "7 10 * * 1-5"
 
   workflow_dispatch:
 
-# Only one scanner should modify the output files at a time.
-# A new manual or scheduled run cancels an older active/pending run.
 concurrency:
   group: nse-scanner
-  cancel-in-progress: true
+  cancel-in-progress: false    # ← इसे false करें
 
 jobs:
   scan:
