@@ -6,9 +6,7 @@ on:
   # 9:15 AM IST = 3:45 AM UTC
   # 3:30 PM IST = 10:00 AM UTC
   schedule:
-    - cron: "45 3 * * 1-5"
-    - cron: "*/15 4-9 * * 1-5"
-    - cron: "0 10 * * 1-5"
+  - cron: "45 3,4,5,6,7,8,9 * * 1-5"  # 9:15 AM, 9:30, 9:45, 10:00, etc. IST
   workflow_dispatch:
 
 # Prevent two scanner jobs from modifying sent_alerts.json or
