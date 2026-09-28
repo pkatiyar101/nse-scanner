@@ -1,17 +1,18 @@
 name: NSE Scanner
 
 on:
-  # GitHub cron uses UTC.
-  # IST schedule: 9:15 AM to 3:30 PM, every 15 minutes, Monday-Friday.
-  #
-  # 9:15, 9:30, 9:45 IST = 03:45, 04:00, 04:15 UTC
-  # 3:30 PM IST = 10:00 UTC
   schedule:
-    - cron: "15,30,45 3 * * 1-5"
-    - cron: "*/15 4-9 * * 1-5"
-    - cron: "0,15,30 10 * * 1-5"
+    # 9:15–9:45 AM IST = 03:45–04:15 UTC
+    - cron: "45 3 * * 1-5"
+    - cron: "0,15 4 * * 1-5"
 
-  # Allows manual execution from the Actions tab.
+    # 10:00 AM–2:45 PM IST = 04:30–09:15 UTC
+    - cron: "*/15 4-9 * * 1-5"
+
+    # 3:00–3:30 PM IST = 09:30–10:00 UTC
+    - cron: "30,45 9 * * 1-5"
+    - cron: "0 10 * * 1-5"
+
   workflow_dispatch:
 
 # Only one scanner should modify the output files at a time.
