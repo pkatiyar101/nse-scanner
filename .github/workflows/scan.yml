@@ -2,14 +2,18 @@ name: NSE Scanner
 
 on:
   schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  #on:
+ # schedule:
     # Runs ~2 minutes AFTER each 15-minute candle closes (candles close at
     # IST :00/:15/:30/:45). UTC minute + 30 = IST minute, so UTC :02,:17,:32,:47
     # equals IST :32,:47,:02,:17.
     # First run 04:02 UTC = 09:32 IST, last run 10:02 UTC = 15:32 IST.
-    - cron: "2,17,32,47 4-9 * * 1-5"
-    - cron: "2 10 * * 1-5"
+   # - cron: "2,17,32,47 4-9 * * 1-5"
+   # - cron: "2 10 * * 1-5"
 
-  workflow_dispatch:
+  
 
 concurrency:
   group: nse-scanner
