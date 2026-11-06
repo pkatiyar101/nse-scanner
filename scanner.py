@@ -45,7 +45,7 @@ PAGE_SIZE = 2000
 
 # Send the "NSE SCAN" status message even when there are no new alerts.
 # Set to False to receive Telegram messages only when there is a new alert.
-SEND_STATUS_WHEN_NO_ALERT = True
+SEND_STATUS_WHEN_NO_ALERT = False
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
